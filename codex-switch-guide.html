@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex 账号切换器</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground:      #F4F6F8;
+    --surface:     #FFFFFF;
+    --surface-alt: #EAEEF2;
+    --ink:         #1A2430;
+    --ink-soft:    #4A5A6B;
+    --ink-faint:   #7A8899;
+    --rule:        #D4DBE2;
+    --rule-soft:   #E4E9EE;
+    --accent:      #A8762C;
+    --accent-soft: #F0E4CE;
+    --ok:          #2E7D5B;
+    --warn:        #B4762A;
+    --danger:      #B4453A;
+    --term-bg:     #171E27;
+    --term-fg:     #C9D4DF;
+    --term-dim:    #6B7A8A;
+
+    --sans:  "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Songti SC", serif;
+    --mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #141A21;
+      --surface:     #1B222B;
+      --surface-alt: #222B35;
+      --ink:         #DDE4EA;
+      --ink-soft:    #A3B0BC;
+      --ink-faint:   #75838F;
+      --rule:        #2E3742;
+      --rule-soft:   #262E38;
+      --accent:      #D9A248;
+      --accent-soft: #3A3020;
+      --ok:          #5CB88C;
+      --warn:        #D9A248;
+      --danger:      #E0796C;
+      --term-bg:     #0E141A;
+      --term-fg:     #C9D4DF;
+      --term-dim:    #6B7A8A;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #141A21;
+    --surface:     #1B222B;
+    --surface-alt: #222B35;
+    --ink:         #DDE4EA;
+    --ink-soft:    #A3B0BC;
+    --ink-faint:   #75838F;
+    --rule:        #2E3742;
+    --rule-soft:   #262E38;
+    --accent:      #D9A248;
+    --accent-soft: #3A3020;
+    --ok:          #5CB88C;
+    --warn:        #D9A248;
+    --danger:      #E0796C;
+    --term-bg:     #0E141A;
+    --term-fg:     #C9D4DF;
+    --term-dim:    #6B7A8A;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+
+  /* ── 页眉 ───────────────────────────────────────── */
+  .masthead { border-bottom: 2px solid var(--ink); padding-bottom: 1.5rem; margin-bottom: 2.5rem; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 0.75rem;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 600; font-size: 2.5rem;
+    line-height: 1.15; margin: 0 0 0.75rem; text-wrap: balance; letter-spacing: -0.01em;
+  }
+  .standfirst { font-size: 1.0625rem; color: var(--ink-soft); margin: 0; max-width: 40rem; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-top: 1.25rem;
+    font-family: var(--mono); font-size: 0.75rem; color: var(--ink-faint);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ── 章节 ───────────────────────────────────────── */
+  section { margin-top: 3.5rem; }
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.5rem;
+    margin: 0 0 0.5rem; text-wrap: balance; display: flex; align-items: baseline; gap: 0.75rem;
+  }
+  h2 .num {
+    font-family: var(--mono); font-size: 0.8125rem; font-weight: 500;
+    color: var(--accent); letter-spacing: 0.05em;
+  }
+  h3 {
+    font-family: var(--sans); font-weight: 600; font-size: 1rem;
+    margin: 2rem 0 0.5rem; color: var(--ink);
+  }
+  p { margin: 0.75rem 0; }
+  .lede { color: var(--ink-soft); margin-bottom: 1.5rem; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  code {
+    font-family: var(--mono); font-size: 0.875em;
+    background: var(--surface-alt); padding: 0.1em 0.35em; border-radius: 3px;
+  }
+  strong { font-weight: 600; }
+
+  /* ── 命令块：你要敲的东西 ─────────────────────── */
+  .cmd {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 0.875rem 1rem; margin: 1rem 0;
+    font-family: var(--mono); font-size: 0.8125rem; line-height: 1.7;
+    overflow-x: auto; white-space: pre;
+  }
+  .cmd .p { color: var(--accent); user-select: none; }
+  .cmd .c { color: var(--ink-faint); }
+
+  /* ── 终端块：程序吐出来的东西，永远深色 ───────── */
+  .term {
+    background: var(--term-bg); color: var(--term-fg);
+    border: 1px solid var(--rule); border-radius: 4px;
+    padding: 1rem 1.125rem; margin: 1.25rem 0;
+    font-family: var(--mono); font-size: 0.75rem; line-height: 1.75;
+    overflow-x: auto; white-space: pre;
+  }
+  .term .dim { color: var(--term-dim); }
+  .term .ok  { color: #5CB88C; }
+  .term .lo  { color: #E0796C; }
+  .term .hi  { color: #5CB88C; }
+  .term .cur { color: #6FB3D9; }
+  .term .hd  { color: #E8EEF4; font-weight: 500; }
+
+  /* ── 表格 ───────────────────────────────────────── */
+  .tbl-wrap { overflow-x: auto; margin: 1.25rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+  th, td { text-align: left; padding: 0.625rem 0.875rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 500;
+    border-bottom: 1px solid var(--rule); white-space: nowrap;
+  }
+  td code { white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── 步骤 ───────────────────────────────────────── */
+  .steps { list-style: none; padding: 0; margin: 1.5rem 0 0; counter-reset: s; }
+  .steps > li {
+    counter-increment: s; position: relative;
+    padding-left: 2.75rem; padding-bottom: 1.75rem;
+    border-left: 1px solid var(--rule); margin-left: 0.875rem;
+  }
+  .steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .steps > li::before {
+    content: counter(s); position: absolute; left: -0.875rem; top: 0;
+    width: 1.75rem; height: 1.75rem; border-radius: 50%;
+    background: var(--ground); border: 1px solid var(--rule); color: var(--accent);
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 500;
+    display: grid; place-items: center;
+  }
+  .steps h3 { margin-top: 0; }
+
+  /* ── 提示条 ─────────────────────────────────────── */
+  .note {
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+    padding: 0.875rem 1.125rem; margin: 1.25rem 0; font-size: 0.9375rem;
+  }
+  .note.bad { border-left-color: var(--danger); background: transparent; border: 1px solid var(--danger); border-left-width: 3px; }
+  .note b { display: block; margin-bottom: 0.25rem; }
+
+  /* ── 定制点卡片 ─────────────────────────────────── */
+  .knobs { display: grid; gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule-soft); margin: 1.5rem 0; }
+  .knob { background: var(--surface); padding: 1rem 1.125rem; }
+  .knob .fn {
+    font-family: var(--mono); font-size: 0.8125rem; color: var(--accent);
+    font-weight: 500; margin-bottom: 0.375rem;
+  }
+  .knob p { margin: 0; font-size: 0.875rem; color: var(--ink-soft); }
+
+  .footer {
+    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 0.75rem; color: var(--ink-faint);
+  }
+
+  @media (max-width: 34rem) {
+    .wrap { padding: 2.5rem 1.125rem 4rem; }
+    h1 { font-size: 1.875rem; }
+    .term, .cmd { font-size: 0.6875rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 独立打开时需要的基础 reset（发布到 artifact 平台时由平台注入） */
+  html { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">部署与定制手册</div>
+    <h1>Codex 账号切换器</h1>
+    <p class="standfirst">
+      一条命令切换机器上的 Codex 全局身份，顺带看清每个账号还剩多少额度、什么时候重置、手上有几张重置卡。
+      本文覆盖部署、日常用法、脚本架构，以及你要改它时该动哪里。
+    </p>
+    <div class="meta">
+      <span><b>脚本</b> codex-switch · bash · 976 行</span>
+      <span><b>实测</b> codex-cli 0.149.1 / 0.153.4</span>
+      <span><b>平台</b> Linux · 单机单用户</span>
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="num">00</span> 它解决什么</h2>
+    <p class="lede">
+      Codex CLI 到今天为止<strong>没有原生的多账号管理</strong>：<code>codex login</code> 只有一个 <code>status</code> 子命令，
+      <code>--profile</code> 切的是模型配置而不是身份。想换账号只能重新登录一次，换回来再登一次。
+    </p>
+    <p>
+      这个脚本把「登录态」当成可存档的槽位来管：每个账号登录一次就被记住，之后 <code>codex-switch 2</code> 一条命令切过去，
+      新开的终端、重启后的 VS Code 插件都跟着走。顺带把额度信息也查出来了 —— 毕竟切账号的动机通常就是「这个用完了」。
+    </p>
+
+    <div class="term"><span class="dim">$</span> codex-switch list
+
+<span class="hd">   槽位  账号                套餐  剩余额度        重置      重置卡  状态</span>
+<span class="dim">─────────────────────────────────────────────────────────────────────────</span>
+   1     alice@example.com   pro   <span class="lo">▓░░░░░░░░░ 1%</span>   2h15m 后  3       <span class="ok">正常</span>
+<span class="cur">*</span>  2     bob@example.com     pro   <span class="hi">▓▓▓▓▓▓▓▓▓▓ 99%</span>  6d23h 后  3       <span class="ok">正常</span>
+
+<span class="dim">* = 当前账号 · 额度缓存于 3m 前 · codex-switch list --live 实时刷新</span></div>
+
+    <p>
+      剩余额度 ≤10% 标红、≤30% 标黄。额度、重置时间、重置卡数量都来自官方接口，不是估算的。
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">01</span> 环境前提</h2>
+    <p class="lede">部署前先对齐这几项，尤其是第二条 —— 不满足的话切换会静默无效。</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>项目</th><th>要求</th><th>怎么确认</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Codex CLI</b></td>
+            <td>0.149 以上</td>
+            <td><code>codex --version</code></td>
+          </tr>
+          <tr>
+            <td><b>凭据存储模式</b></td>
+            <td>必须是 <code>File</code>，不能是 keyring</td>
+            <td><code>codex doctor | grep "storage mode"</code></td>
+          </tr>
+          <tr>
+            <td><b>命令行依赖</b></td>
+            <td><code>jq</code> <code>python3</code> <code>flock</code> <code>sha256sum</code> <code>awk</code> <code>install</code> <code>mktemp</code></td>
+            <td>脚本启动时自检，缺哪个报哪个</td>
+          </tr>
+          <tr>
+            <td><b>PATH</b></td>
+            <td><code>~/.local/bin</code> 在 PATH 里</td>
+            <td><code>echo $PATH | tr : '\n' | grep local/bin</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note bad">
+      <b>凭据存储模式是硬前提</b>
+      Codex 支持把凭据存进系统 keyring。如果是 keyring 模式，脚本切 <code>auth.json</code> 完全不起作用 ——
+      文件换了，Codex 照样读 keyring 里的旧身份。必须先切成文件模式。
+    </div>
+
+    <p>如果 <code>codex doctor</code> 显示的不是 <code>File</code>，在 <code>~/.codex/config.toml</code> 顶部加一行，然后<strong>重新登录一次</strong>让凭据落到文件：</p>
+
+    <div class="cmd"><span class="c"># ~/.codex/config.toml 第一行</span>
+cli_auth_credentials_store = "file"
+
+<span class="c"># 然后重新登录，让凭据写进 auth.json</span>
+<span class="p">$</span> codex logout &amp;&amp; codex login</div>
+
+    <p>
+      <code>jq</code> 和 <code>python3</code> 来自系统还是 conda 都行，脚本不挑。Python 只用了标准库，3.6 以上即可。
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span> 部署</h2>
+
+    <ol class="steps">
+      <li>
+        <h3>放置脚本</h3>
+        <p>把 <code>codex-switch</code> 文件放进 <code>~/.local/bin/</code> 并加执行位。</p>
+        <div class="cmd"><span class="p">$</span> install -m 755 codex-switch ~/.local/bin/codex-switch
+<span class="p">$</span> command -v codex-switch   <span class="c"># 应该打印路径</span></div>
+        <p>如果 <code>~/.local/bin</code> 不在 PATH，往 <code>~/.bashrc</code> 加 <code>export PATH="$HOME/.local/bin:$PATH"</code>。</p>
+      </li>
+
+      <li>
+        <h3>登记当前账号为槽位 1</h3>
+        <p>这一步只是把现有的登录态存个档，不会改动任何凭据，安全。</p>
+        <div class="cmd"><span class="p">$</span> codex-switch adopt 1
+<span class="c">已把当前账号登记为槽位 1。</span></div>
+      </li>
+
+      <li>
+        <h3>加第二个账号</h3>
+        <p>
+          这一步会打开登录流程。远程机器（SSH / VS Code Remote）用 <code>--device-auth</code> 走设备码，不需要本机浏览器。
+          登录成功后<strong>自动切过去</strong>，不用再单独切一次。
+        </p>
+        <div class="cmd"><span class="p">$</span> codex-switch add 2 --device-auth</div>
+        <p>
+          如果报「检测到 N 个运行中的 Codex 进程」，见下面第 05 节 —— 要么关掉它们，要么加 <code>--force-running</code>
+          并理解其中的取舍。
+        </p>
+      </li>
+
+      <li>
+        <h3>验收</h3>
+        <div class="cmd"><span class="p">$</span> codex-switch list --live
+<span class="p">$</span> codex-switch status</div>
+        <p><code>status</code> 显示 <code>consistent</code> 就说明槽位记录和实际登录态一致。</p>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span> 日常用法</h2>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>命令</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>codex-switch 2</code></td><td>切到槽位 2（<code>use 2</code> 是同义写法）</td></tr>
+          <tr><td><code>codex-switch list</code></td><td>列出所有槽位，额度读本地缓存，秒回</td></tr>
+          <tr><td><code>codex-switch list --live</code></td><td>联网实时查所有槽位额度，约 2.5 秒/账号</td></tr>
+          <tr><td><code>codex-switch status</code></td><td>槽位一致性 + <code>codex login status</code> + 额度表</td></tr>
+          <tr><td><code>codex-switch add N</code></td><td>登录新账号存进槽位 N 并切过去</td></tr>
+          <tr><td><code>codex-switch adopt N</code></td><td>把当前 <code>auth.json</code> 登记为槽位 N（不触发登录）</td></tr>
+          <tr><td><code>--force-running</code></td><td>检测到运行中的 Codex 时仍强行切换</td></tr>
+          <tr><td><code>--no-color</code></td><td>禁用彩色（管道输出时自动禁用，无需手动加）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>切换后已运行的进程不会跟着变</b>
+      Codex 只在进程启动时加载一次认证，协议层没有凭据热重载接口。新开的终端立刻是新账号；
+      已经开着的 VS Code 窗口要 <code>Ctrl+Shift+P</code> → Developer: Reload Window。
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span> 脚本架构</h2>
+    <p class="lede">要改它，先知道它怎么组织的。整体是「bash 管文件与安全，内嵌 Python 管信息与渲染」。</p>
+
+    <h3>核心思路</h3>
+    <p>
+      Codex 的全局身份就是 <code>~/.codex/auth.json</code> 这一个文件。脚本把每个账号的这份文件存成槽位快照，
+      切换 = 把当前的存回原槽位，再把目标槽位的复制过来。因为改的是<strong>默认路径</strong>而不是设置
+      <code>CODEX_HOME</code>，所以切换对所有 Codex 客户端全局生效，不需要给每个账号配一套启动别名。
+    </p>
+
+    <h3>磁盘布局</h3>
+    <div class="cmd">~/.codex/
+├── auth.json                    <span class="c"># 当前生效的身份（Codex 读这个）</span>
+├── config.toml                  <span class="c"># 需含 cli_auth_credentials_store = "file"</span>
+└── account_storage/
+    ├── acc1.json                <span class="c"># 槽位 1 的凭据快照</span>
+    ├── acc2.json                <span class="c"># 槽位 2</span>
+    ├── current                  <span class="c"># 当前槽位号</span>
+    ├── switch.lock              <span class="c"># flock 互斥锁</span>
+    ├── pending.json             <span class="c"># 切换事务记录，中断后可恢复</span>
+    └── usage/accN.json          <span class="c"># 额度缓存（含账号指纹）</span></div>
+
+    <h3>安全机制</h3>
+    <p>这几层是脚本里最不该随手改的部分，每一层都对应一个真实会踩的坑：</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>机制</th><th>实现</th><th>防什么</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>互斥锁</td>
+            <td><code>flock</code> 全局独占</td>
+            <td>两个切换同时跑，凭据写花</td>
+          </tr>
+          <tr>
+            <td>原子替换</td>
+            <td><code>mktemp</code> + <code>mv -fT</code></td>
+            <td>写一半被打断留下残缺凭据</td>
+          </tr>
+          <tr>
+            <td>身份指纹</td>
+            <td><code>sha256(account_id)</code></td>
+            <td>绕过脚本手工登录后，把 A 账号覆盖进 B 槽位</td>
+          </tr>
+          <tr>
+            <td>事务记录</td>
+            <td><code>pending.json</code> + 启动时恢复</td>
+            <td>切换中途被 kill，状态卡在中间</td>
+          </tr>
+          <tr>
+            <td>运行守卫</td>
+            <td><code>ps -u $(id -u)</code> 数自己的进程</td>
+            <td>旧进程把旧凭据刷回来（见 05 节）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      指纹只取 <code>account_id</code>，不含 token 值 —— 所以 token 刷新后指纹不变，
+      「同一个账号」和「同一份 token」被刻意区分开了。
+    </p>
+
+    <h3>信息层</h3>
+    <p>额度这类信息分两个来源，成本差一个数量级：</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>信息</th><th>来源</th><th>成本</th></tr></thead>
+        <tbody>
+          <tr><td>邮箱 · 套餐 · 订阅到期 · token 有效期</td><td>本地解 <code>auth.json</code> 里的 JWT payload</td><td>离线，零成本</td></tr>
+          <tr><td>剩余额度 · 重置时间 · 重置卡</td><td><code>codex app-server</code> 的 JSON-RPC <code>account/rateLimits/read</code></td><td>联网，~2.5s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      第二条是唯一可行通道 —— REST <code>/backend-api/*</code> 对 codex token 一律 403，响应头不带额度，
+      <code>codex exec --json</code> 只给单次 turn 的 token 计数，本地 sqlite 也没有缓存。
+      完整方法表可以自己导：<code>codex app-server generate-json-schema --out /tmp/schema</code>。
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">05</span> 三个必须知道的坑</h2>
+    <p class="lede">都是实测撞出来的，不是理论推演。改脚本前尤其要理解第一条。</p>
+
+    <h3>refresh_token 是一次性轮换的</h3>
+    <p>
+      OpenAI 的 refresh_token 用一次就作废，换回来一个新的。这意味着<strong>任何把槽位快照复制到别处去用的操作，
+      都必须把刷新后的凭据写回槽位文件</strong>，否则那个账号直接登出，再登录时报：
+    </p>
+    <div class="term"><span class="lo">401 refresh_token_reused</span>
+<span class="dim">"Your refresh token has already been used to generate a new access token."</span></div>
+    <p>
+      脚本查非活跃槽位额度时就走这条路：复制到隔离的临时 <code>CODEX_HOME</code> → 查询 → 用 sha256 检测凭据是否被刷新 →
+      指纹校验确认还是同一个账号 → 写回槽位。<strong>如果你要加任何「拿槽位凭据去做事」的功能，必须照抄这套写回逻辑。</strong>
+    </p>
+
+    <h3>运行中的进程会改写 auth.json</h3>
+    <p>实测到的时间线，进程启动 5 分钟后主动刷新了凭据 —— 当时旧 token 还有 4 天才过期：</p>
+    <div class="term"><span class="dim">11:03:43</span>  codex app-server 启动
+<span class="dim">11:09:00</span>  auth.json 被写入，token 换成新签发的</div>
+    <p>
+      所以切换后如果旧进程还活着，它可能在任意时刻用<strong>旧账号的 refresh_token</strong> 换新 token 并写回
+      <code>auth.json</code>，造成两件事：你切的新账号被静默覆盖；旧账号的槽位快照因 token 被轮换而失效。
+      这就是运行守卫默认拦截的原因，<code>--force-running</code> 是在明确承担这个风险。
+    </p>
+
+    <h3>进程检测只看自己</h3>
+    <p>
+      <code>running_codex_pids</code> 用的是 <code>ps -u $(id -u)</code>，只数当前 Unix 用户的进程。
+      多人共用的机器上不会被别人的 Codex 误伤 —— 但反过来，同一用户在别的终端跑着的 Codex 也是会拦你的。
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">06</span> 定制指南</h2>
+    <p class="lede">
+      脚本是单文件的，改完直接生效，没有构建步骤。下面按「想改什么 → 动哪个函数」列出常见改法。
+      建议改之前先 <code>cp ~/.local/bin/codex-switch{,.bak}</code>，改完 <code>bash -n</code> 过一遍语法。
+    </p>
+
+    <h3>换个地方存数据</h3>
+    <p>
+      所有路径都从脚本头部 4 行常量派生，且 base 支持环境变量覆盖 —— 想拿一份隔离的数据做实验，
+      不用改代码：
+    </p>
+    <div class="cmd"><span class="c"># 脚本头部</span>
+BASE_DIR="${CODEX_SWITCH_HOME:-$HOME/.codex}"
+STORE_DIR="$BASE_DIR/account_storage"
+USAGE_DIR="$STORE_DIR/usage"
+
+<span class="c"># 拿个沙箱跑，完全不碰真实凭据</span>
+<span class="p">$</span> CODEX_SWITCH_HOME=/tmp/cxtest codex-switch list</div>
+
+    <h3>改显示</h3>
+    <p>渲染全在内嵌的 Python 辅助器里（<code>py_helper()</code> 函数体内），改这几处就够：</p>
+
+    <div class="knobs">
+      <div class="knob">
+        <div class="fn">render() → heads / keys</div>
+        <p>表格有哪些列、列名叫什么。两个数组一一对应，同步改。</p>
+      </div>
+      <div class="knob">
+        <div class="fn">_bar(remain, width=10)</div>
+        <p>额度条的字符和宽度。当前用 ▓░ 十格，还剩一点点时至少点亮一格，避免和「耗尽」混淆。</p>
+      </div>
+      <div class="knob">
+        <div class="fn">render() 里的配色阈值</div>
+        <p>当前剩余 ≤10% 红、≤30% 黄。ANSI 码：31 红、33 黄、32 绿、2 暗、1 粗。</p>
+      </div>
+      <div class="knob">
+        <div class="fn">_rel(ts)</div>
+        <p>相对时间的说法，现在是「3h23m 后」。想要绝对时间戳就改这里。</p>
+      </div>
+      <div class="knob">
+        <div class="fn">_pick_window(rl)</div>
+        <p>服务端可能同时给周窗口和 5 小时窗口，当前取已用比例更高的那个（先撞到的）。想固定看某个窗口就改判据。</p>
+      </div>
+      <div class="knob">
+        <div class="fn">decode(path)</div>
+        <p>从 JWT 里多解些字段出来。<code>id_token</code> 里还有订阅起止时间、组织信息、认证方式没用上。</p>
+      </div>
+    </div>
+
+    <h3>加新的信息源</h3>
+    <p>
+      同一个 app-server 通道上还挂着别的方法，加进来的成本很低 —— 照着 <code>fetch()</code> 换个
+      <code>method</code> 就行：
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>方法</th><th>能拿到</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>account/usage/read</code></td>
+            <td>累计 token、单日峰值、最长单次 turn、连续使用天数、按天的用量序列</td>
+          </tr>
+          <tr>
+            <td><code>account/read</code></td>
+            <td>邮箱与套餐（本地 JWT 已能解出，一般用不上）</td>
+          </tr>
+          <tr>
+            <td><code>account/rateLimitResetCredit/consume</code></td>
+            <td><b>消费重置卡</b>，立即重置额度窗口。要带 <code>idempotencyKey</code>（建议 UUID），
+                返回 <code>reset</code> / <code>nothingToReset</code> / <code>noCredit</code> / <code>alreadyRedeemed</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>最后一个是写操作</b>
+      当前脚本刻意<strong>只读不消费</strong>重置卡。要加的话建议配二次确认，并注意 <code>idempotencyKey</code>
+      在重试时必须复用同一个值，否则会连消费两张。
+    </div>
+
+    <h3>调整运行守卫</h3>
+    <p>
+      嫌每次都要 <code>--force-running</code> 太烦，可以改 <code>guard_running_clients()</code>。
+      但先读完 05 节第二条 —— 单纯把默认反转等于把那个坑设成默认。更稳的做法是切换后主动终止持有旧凭据的进程，
+      把风险窗口从「无限期」压到几百毫秒。
+    </p>
+
+    <h3>不要动的部分</h3>
+    <p>
+      <code>atomic_auth_copy</code>、<code>fingerprint_auth</code>、<code>recover_pending</code>、
+      <code>fetch_usage_slot</code> 的写回段 —— 这四处是凭据安全的地基，改错的后果是账号登出或槽位互相覆盖，
+      而且往往是静默的，等你发现时已经登不上了。
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">07</span> 边界</h2>
+    <p>说清楚它<strong>不</strong>管什么，省得踩空：</p>
+    <div class="tbl-wrap">
+      <table>
+        <tbody>
+          <tr><td>作用范围</td><td>同一台机器、同一个 Unix 用户、默认 <code>~/.codex</code>。另一台机器 / WSL / Dev Container / 别的用户各有各的，要分别部署</td></tr>
+          <tr><td>热切换</td><td>不支持。已运行的 Codex 必须重启才会读到新身份</td></tr>
+          <tr><td>登录方式</td><td>ChatGPT 登录和 API key 都能存槽位；<code>--with-access-token</code> 那种没有 refresh 能力的形式被显式拒绝</td></tr>
+          <tr><td>额度数据</td><td>来自服务端实时接口，非活跃槽位显示的是缓存值，带时间戳标注</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footer">
+    实测环境 Ubuntu 20.04 · codex-cli 0.149.1 → 0.153.4 · bash 5.0 · python 3.11 · jq 1.6<br>
+    脚本随 Codex 版本演进可能需要跟进，最容易变的是 app-server 的 JSON-RPC 方法名，
+    用 <code>generate-json-schema</code> 导出对照即可。
+  </div>
+
+</div>
+</body>
+</html>

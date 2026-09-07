@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zeus V3 模型部署性能优化 · 三个层次</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0e16;--bg2:#0d121c;--panel:#111824;--panel2:#0e141f;
+    --line:#1e2a3a;--line2:#27374b;--ink:#e7eef6;--mut:#8493a8;--mut2:#5d6c82;
+    --amber:#ffb02e;--cyan:#36d0d6;--green:#46c46a;--warn:#e0a228;--plan:#7b86ff;
+    --aA:#36d0d6;--aB:#9b8cff;--aC:#ffb02e;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --disp:'Chakra Petch','Noto Sans SC',sans-serif;
+    --body:'Noto Sans SC','IBM Plex Mono',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font-family:var(--body);line-height:1.55;
+    -webkit-font-smoothing:antialiased;padding:46px 20px 70px;position:relative;overflow-x:hidden}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:46px 46px;
+    -webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 12%,#000 0%,transparent 75%);
+            mask-image:radial-gradient(ellipse 80% 60% at 50% 12%,#000 0%,transparent 75%);opacity:.5}
+  body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(900px 420px at 18% -8%,rgba(54,208,214,.10),transparent 60%),
+      radial-gradient(900px 480px at 88% 30%,rgba(255,176,46,.08),transparent 60%)}
+  .wrap{position:relative;z-index:1;max-width:1140px;margin:0 auto}
+
+  header{margin-bottom:30px;opacity:0;animation:rise .7s .05s ease both}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--cyan);display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .kicker::before{content:"";width:30px;height:1px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+  h1{font-family:var(--disp);font-weight:700;font-size:clamp(28px,4.6vw,46px);letter-spacing:.01em;line-height:1.08;margin-bottom:12px}
+  h1 b{color:var(--amber)}
+  .sub{color:var(--mut);max-width:780px;font-size:15px}
+  .sub b{color:var(--ink);font-weight:500}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:20px;font-family:var(--mono);font-size:12px;color:var(--mut);
+    border-top:1px dashed var(--line2);padding-top:16px}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .dot.g{background:var(--green);box-shadow:0 0 7px var(--green)}
+  .dot.w{background:var(--warn);box-shadow:0 0 7px var(--warn)}
+  .dot.p{background:var(--plan);box-shadow:0 0 7px var(--plan)}
+
+  .band{position:relative;display:grid;grid-template-columns:128px 1fr;gap:0;
+    background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line2);
+    border-radius:16px;overflow:hidden;box-shadow:0 18px 40px -28px rgba(0,0,0,.9);opacity:0;animation:rise .7s ease both}
+  .band.a{animation-delay:.12s}.band.b{animation-delay:.28s}.band.c{animation-delay:.44s}
+  .rail{position:relative;padding:22px 16px;display:flex;flex-direction:column;gap:8px;
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),
+      repeating-linear-gradient(45deg,rgba(255,255,255,.018) 0 2px,transparent 2px 9px);
+    border-right:1px solid var(--line2)}
+  .rail .big{font-family:var(--disp);font-weight:700;font-size:54px;line-height:.9}
+  .rail .rname{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;color:var(--ink)}
+  .rail .who{font-family:var(--mono);font-size:11px;letter-spacing:.02em;color:var(--cyan)}
+  .rail .when{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2)}
+  .band.a .rail .big{color:var(--aA)} .band.a{border-color:rgba(54,208,214,.32)}
+  .band.b .rail .big{color:var(--aB)} .band.b{border-color:rgba(155,140,255,.30)} .band.b .rail .who{color:var(--aB)}
+  .band.c .rail .big{color:var(--aC)} .band.c{border-color:rgba(255,176,46,.34)} .band.c .rail .who{color:var(--aC)}
+  .body{padding:22px 24px}
+  .band h2{font-family:var(--disp);font-weight:600;font-size:19px;margin-bottom:4px;letter-spacing:.01em}
+  .band .lead{color:var(--mut);font-size:13.5px;margin-bottom:16px}
+  .band .lead b{color:var(--ink);font-weight:500}
+
+  .flow{position:relative;height:46px;display:flex;align-items:center;justify-content:center;opacity:0;animation:rise .6s ease both}
+  .flow.f1{animation-delay:.24s}.flow.f2{animation-delay:.40s}
+  .flow svg{position:absolute;height:46px;width:3px;overflow:visible}
+  .flow .tag{font-family:var(--mono);font-size:11.5px;color:var(--mut);background:var(--bg2);
+    border:1px solid var(--line2);border-radius:20px;padding:5px 14px;letter-spacing:.02em;position:relative;z-index:2}
+  .flow .tag b{color:var(--cyan)}
+  .flow .dline{stroke:var(--line2);stroke-width:2;stroke-dasharray:5 6;animation:dash 1.1s linear infinite}
+  .flow .pulse{fill:var(--cyan);filter:drop-shadow(0 0 5px var(--cyan))}
+
+  .cgrid{display:grid;gap:14px}
+  .cgrid.c3{grid-template-columns:repeat(3,1fr)}
+  .cgrid.c2{grid-template-columns:repeat(2,1fr)}
+  .col{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:15px 15px 16px;position:relative}
+  .col-h{font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+  .band.b .col-h{color:var(--aB)} .band.c .col-h{color:var(--amber)}
+  .col-t{font-family:var(--disp);font-weight:600;font-size:15px;margin-bottom:12px;color:var(--ink)}
+  .knob{display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px dashed var(--line)}
+  .knob:first-of-type{border-top:none}
+  .knob .k-main{flex:1;min-width:0}
+  .knob .k-name{font-size:13px;font-weight:500;color:var(--ink)}
+  .knob .k-name code{font-family:var(--mono);font-size:11.5px;color:var(--cyan)}
+  .knob .k-desc{font-size:11.5px;color:var(--mut);line-height:1.45}
+  .badge{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:5px;
+    white-space:nowrap;margin-top:2px;flex-shrink:0;text-transform:uppercase}
+  .badge.g{color:var(--green);background:rgba(70,196,106,.12);border:1px solid rgba(70,196,106,.4)}
+  .badge.w{color:var(--warn);background:rgba(224,162,40,.12);border:1px solid rgba(224,162,40,.4)}
+  .badge.p{color:var(--plan);background:rgba(123,134,255,.12);border:1px solid rgba(123,134,255,.4)}
+  .lev{font-family:var(--mono);font-size:10px;color:var(--mut2);margin-top:3px}
+  .lev b{color:var(--amber)}
+
+  .rows{display:grid;gap:8px}
+  .row{display:grid;grid-template-columns:118px 1fr;gap:14px;align-items:start;padding:8px 0;border-top:1px dashed var(--line)}
+  .row:first-child{border-top:none}
+  .row .mod{font-family:var(--mono);font-size:12.5px;color:var(--cyan);font-weight:500}
+  .row .det{font-size:12.5px;color:var(--mut)}
+  .row .det b{color:var(--ink);font-weight:500}
+  .pill{font-family:var(--mono);font-size:11px;color:var(--aB);border:1px solid var(--line2);border-radius:5px;
+    padding:1px 7px;margin-right:5px;display:inline-block;margin-bottom:3px}
+  .mono-mut{font-family:var(--mono);color:var(--mut)}
+
+  .note{font-family:var(--mono);font-size:11.5px;color:var(--mut2);margin-top:14px;
+    border-left:2px solid var(--line2);padding:2px 0 2px 12px;line-height:1.6}
+  .note b{color:var(--warn)}
+  .note code{color:var(--cyan)}
+
+  .ov{margin-top:26px;background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line2);
+    border-radius:16px;padding:24px 26px;opacity:0;animation:rise .7s .56s ease both}
+  .ov h2{font-family:var(--disp);font-weight:600;font-size:19px;margin-bottom:3px}
+  .ov h2 b{color:var(--amber)}
+  .ov .lead{color:var(--mut);font-size:13px;margin-bottom:20px}
+  .tl-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+  @media(max-width:760px){.tl-grid{grid-template-columns:1fr}.cgrid.c3,.cgrid.c2{grid-template-columns:1fr}}
+  .tl-title{font-family:var(--mono);font-size:12px;letter-spacing:.04em;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .tl-title.bad{color:var(--warn)} .tl-title.good{color:var(--green)}
+  .tl-title .tg{font-size:9.5px;border:1px solid currentColor;border-radius:4px;padding:1px 6px}
+  .lane{display:grid;grid-template-columns:34px 1fr;align-items:center;gap:10px;margin-bottom:9px}
+  .lane .ll{font-family:var(--mono);font-size:11px;color:var(--mut)}
+  .track{position:relative;height:18px;border-radius:4px;border:1px solid var(--line);
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 1px,transparent 1px 40px)}
+  .blk{position:absolute;top:2px;height:12px;border-radius:3px;background:var(--c,#36d0d6);opacity:.92;animation:fillin .5s ease both}
+  .blk.ld{--c:var(--cyan)} .blk.pe{--c:var(--amber)} .blk.st{--c:var(--plan)}
+  .wall{font-family:var(--mono);font-size:11px;margin-top:12px;color:var(--mut)}
+  .wall b{font-family:var(--disp);font-size:14px}
+  .wall.bad b{color:var(--warn)} .wall.good b{color:var(--green)}
+
+  footer{margin-top:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--mut2);
+    letter-spacing:.04em;opacity:0;animation:rise .7s .7s ease both}
+  footer b{color:var(--amber)}
+
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  @keyframes dash{to{stroke-dashoffset:-22}}
+  @keyframes fillin{from{transform:scaleX(.2);opacity:0;transform-origin:left}to{transform:none;opacity:.92}}
+  @media print{body{padding:0}body::before,body::after{display:none}.band,.ov{break-inside:avoid;box-shadow:none}*{animation:none!important;opacity:1!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Zeus V3 NPU · Deployment Performance</div>
+    <h1>模型部署性能优化的<b>三个层次</b></h1>
+    <p class="sub">一个算子从全模型到单 core 跑到最快，穿过三层、各归一个系统：<b>A 分布式部署</b>（推理框架）定「算多大」、<b>B dispatch</b>（torch zeus）搜「怎么切块 + 哪种 weight layout」、<b>C 编译优化</b>（Compiler）定「单 core 怎么算到最快」。C 的灵魂是 <b style="color:var(--amber)">overlap</b>——让 PE 永不空泡，访存藏进计算。</p>
+    <div class="legend">
+      <span><i class="dot g"></i>已落地</span>
+      <span><i class="dot w"></i>链路已通但硬编码 / 退化</span>
+      <span><i class="dot p"></i>规划中 · 思想（主线未实现）</span>
+      <span style="color:var(--mut2)">｜ 杠杆 = 性能收益潜力</span>
+    </div>
+  </header>
+
+  <!-- ============ LAYER A ============ -->
+  <section class="band a">
+    <div class="rail">
+      <div class="big">A</div>
+      <div class="rname">分布式部署</div>
+      <div class="who">推理框架</div>
+      <div class="when">部署期</div>
+    </div>
+    <div class="body">
+      <h2>模型 → 单芯片</h2>
+      <p class="lead">DP / TP / EP / CP 把全模型切到 <b>4 卡 × 卡内 4 芯片</b>，定出<b>单芯片每个 op 的 (M, K, N)</b> 与 weight 切片性质。它是 B、C 两层的输入源。</p>
+      <div class="rows">
+        <div class="row"><div class="mod">Linear Attn</div><div class="det"><span class="pill">DP4</span><span class="pill">TP4 卡内</span>各芯片<b>不同 head 切片</b> · <span class="mono-mut">mamba / attention</span></div></div>
+        <div class="row"><div class="mod">DSA</div><div class="det"><span class="pill">DP4</span><span class="pill">CP4 卡内</span>各芯片<b>不同 context 段</b> · <span class="mono-mut">dsa_attention / glm5next_dsa</span></div></div>
+        <div class="row"><div class="mod">MoE</div><div class="det"><span class="pill">EP4</span><span class="pill">TP4</span>各芯片<b>不同 expert + N 切片</b> · <span class="mono-mut">moe grouped-gemm</span></div></div>
+        <div class="row"><div class="mod">Embedding</div><div class="det"><span class="pill">DP4</span>卡内 4 芯片 <b>duplicate</b>，芯片内每 core 取半行 · <span class="mono-mut">embedding</span></div></div>
+        <div class="row"><div class="mod">mHC</div><div class="det"><span class="pill">DP4</span>卡内 4 芯片 <b>duplicate</b> · <span class="mono-mut">glm5next_mhc</span></div></div>
+        <div class="row"><div class="mod">sampler</div><div class="det"><span class="pill">DP4</span>batch 子集 · <span class="mono-mut">sampling</span></div></div>
+      </div>
+      <p class="note"><b>duplicate</b> 模块（Embedding / mHC）→ 各 core bit-identical 复制同一份 weight（后端 <code>:shared</code> 标记 + core_id 分区）；<b>不同切片</b>模块 → 各 core 切不同 N / head / expert，常规路径。</p>
+    </div>
+  </section>
+
+  <div class="flow f1">
+    <svg viewBox="0 0 3 46" preserveAspectRatio="none" style="width:3px"><line class="dline" x1="1.5" y1="0" x2="1.5" y2="46"/><circle class="pulse" cx="1.5" cy="0" r="3"><animate attributeName="cy" from="0" to="46" dur="1.4s" repeatCount="indefinite"/></circle></svg>
+    <span class="tag">单芯片 per-op <b>(M, K, N)</b></span>
+  </div>
+
+  <!-- ============ LAYER B ============ -->
+  <section class="band b">
+    <div class="rail">
+      <div class="big">B</div>
+      <div class="rname">dispatch kernel</div>
+      <div class="who">torch zeus</div>
+      <div class="when">运行时 · 离线搜</div>
+    </div>
+    <div class="body">
+      <h2>搜索 + 评估两类东西</h2>
+      <p class="lead">拿到单芯片 M/K/N，<b>同时搜 BlockMKN 和 weight layout</b>，再选定已编译 kernel。★ 与编译器解耦——<b>不触发编译，只查表选 kernel</b>。现状：按 <span class="mono-mut">dtype + alignedSize + Tr/Tc</span> 谓词链查表（这些谓词本身就编码了 layout 决策）。</p>
+      <div class="cgrid c2">
+        <div class="col">
+          <div class="col-h">B-① BlockMKN</div>
+          <div class="col-t">tiling 切块</div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">BLOCK_M / K / N</div><div class="k-desc">每个 spec 编译期常量，如 bf16 Tr4Tc4 → 128/128/128</div></div>
+            <span class="badge g">已落地</span>
+          </div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">智谱 BLOCK_SIZE 预选</div><div class="k-desc">已知业务 size → 离线选最优、固化 spec，零搜索开销</div></div>
+            <span class="badge g">已落地</span>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h">B-② weight layout　★修正：属于 B</div>
+          <div class="col-t">排布搜索 / 评估</div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">dense / blocked 排布</div><div class="k-desc">分块独立 7D 消跨 row 开销</div><div class="lev">杠杆 <b>高 ≈ 2×</b></div></div>
+            <span class="badge p">仅 Capstone</span>
+          </div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">wbs · INT4 packing · uscale · KVCache</div><div class="k-desc">读取粒度 / 精度打包 / 量化 scale / KV 缓存</div></div>
+            <span class="badge g">固化在 spec</span>
+          </div>
+        </div>
+      </div>
+      <p class="note">编译器（C）只是 layout 的<b>执行者</b>不是决策者：wbs 推导 / INT4 打包 / uscale / KVCache 已落地；<b>blocked</b> 排布 B 没自动搜、C 后端也未实现（主线 dense），收益在 Capstone 离线模型。</p>
+    </div>
+  </section>
+
+  <div class="flow f2">
+    <svg viewBox="0 0 3 46" preserveAspectRatio="none" style="width:3px"><line class="dline" x1="1.5" y1="0" x2="1.5" y2="46"/><circle class="pulse" cx="1.5" cy="0" r="3"><animate attributeName="cy" from="0" to="46" dur="1.4s" repeatCount="indefinite"/></circle></svg>
+    <span class="tag"><b>BlockMKN + layout</b>（编译期常量）</span>
+  </div>
+
+  <!-- ============ LAYER C ============ -->
+  <section class="band c">
+    <div class="rail">
+      <div class="big">C</div>
+      <div class="rname">编译优化</div>
+      <div class="who">Compiler</div>
+      <div class="when">编译期 · triton_shared</div>
+    </div>
+    <div class="body">
+      <h2>BlockMKN + layout → 微架构　<span style="font-family:var(--body);font-size:13px;color:var(--amber);font-weight:400">— 性能优化主战场</span></h2>
+      <p class="lead">B 定死后，在单 core 内把 <b>PE / VP / DT / LD / ST</b> 五个执行单元<b>喂满</b>且<b>尽量 overlap</b>，避免串行。</p>
+      <div class="cgrid c3">
+
+        <div class="col">
+          <div class="col-h">C1 · 计算优化</div>
+          <div class="col-t">PE 内 MAC 利用率</div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">cut mode <code>YMode</code></div><div class="k-desc">PE 阵列沿 KC（规约）/ KW（token）切分</div><div class="lev">杠杆 <b>中</b></div></div>
+            <span class="badge w">硬编码 KC</span>
+          </div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">minitile <code>w/c/k</code></div><div class="k-desc">PE 内 W/K/C 子分块深度 → 流水填充 + 权重复用</div><div class="lev">杠杆 <b>高 ≈ 2× GEMM</b></div></div>
+            <span class="badge w">硬编码=1</span>
+          </div>
+          <p class="note" style="margin-top:12px">功能仿真<b>不读</b> minitile → cos_sim 零影响，性能损失只有 RTL 暴露。Capstone 搜索现成，待 C++ 移植。</p>
+        </div>
+
+        <div class="col">
+          <div class="col-h">C2 · 多 VP / DT 分配</div>
+          <div class="col-t">同类单元多实例</div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">VP / DT 实例分配</div><div class="k-desc">任务切到多个执行单元实例并行（CSS 路由）</div><div class="lev">杠杆 <b>中-高</b></div></div>
+            <span class="badge p">规划中</span>
+          </div>
+          <p class="note" style="margin-top:12px">主线单 VP / 单 DT 硬编码，<code style="color:var(--cyan)">AssignExecuteUnit</code> 只分类不分实例。CSS 路由仅仿真器侧草案，编译器决策算法（负载均衡）未定义。</p>
+        </div>
+
+        <div class="col">
+          <div class="col-h">C3 · 执行单元 overlap</div>
+          <div class="col-t">第一目标</div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">double buffer / ping-pong</div><div class="k-desc">两块 buffer 交替：PE 算 A 时 LD 填 B，下拍互换</div></div>
+            <span class="badge w">机制可表达</span>
+          </div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">InjectSync 异步流水</div><div class="k-desc">mailbox 发收 token，无依赖指令天然并行</div></div>
+            <span class="badge g">已落地</span>
+          </div>
+          <div class="knob">
+            <div class="k-main"><div class="k-name">计算访存比</div><div class="k-desc">PE 算 vs LD/ST 搬之比 → 定瓶颈、定 overlap 方向</div></div>
+            <span class="badge p">思想</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OVERLAP TIMELINE ============ -->
+  <section class="ov">
+    <h2>为什么 <b>overlap</b> 是 C 层的灵魂　<span style="font-family:var(--body);font-size:13px;color:var(--mut);font-weight:400">— double buffer / ping-pong</span></h2>
+    <p class="lead">同样的 LD / PE / ST 工作量，串行让 PE 大量空泡（墙钟 = Σ 各段）；两块 buffer 交替错位流水，把访存藏进计算（墙钟 ≈ max 单元时长）。</p>
+    <div class="tl-grid">
+
+      <div>
+        <div class="tl-title bad"><span class="tg">SERIAL</span> 串行 — PE 等访存，空泡</div>
+        <div class="lane"><div class="ll">LD</div><div class="track">
+          <div class="blk ld" style="left:0%;width:14%;animation-delay:.0s"></div>
+          <div class="blk ld" style="left:42%;width:14%;animation-delay:.3s"></div>
+          <div class="blk ld" style="left:84%;width:14%;animation-delay:.6s"></div>
+        </div></div>
+        <div class="lane"><div class="ll">PE</div><div class="track">
+          <div class="blk pe" style="left:14%;width:14%;animation-delay:.1s"></div>
+          <div class="blk pe" style="left:56%;width:14%;animation-delay:.4s"></div>
+        </div></div>
+        <div class="lane"><div class="ll">ST</div><div class="track">
+          <div class="blk st" style="left:28%;width:14%;animation-delay:.2s"></div>
+          <div class="blk st" style="left:70%;width:14%;animation-delay:.5s"></div>
+        </div></div>
+        <div class="wall bad">墙钟 <b>━━━━━━━━━━━━━━━━</b> 长</div>
+      </div>
+
+      <div>
+        <div class="tl-title good"><span class="tg">OVERLAP</span> ping-pong — 访存被掩盖</div>
+        <div class="lane"><div class="ll">LD</div><div class="track">
+          <div class="blk ld" style="left:0%;width:15%;animation-delay:.0s"></div>
+          <div class="blk ld" style="left:17%;width:15%;animation-delay:.15s"></div>
+          <div class="blk ld" style="left:34%;width:15%;animation-delay:.3s"></div>
+          <div class="blk ld" style="left:51%;width:15%;animation-delay:.45s"></div>
+        </div></div>
+        <div class="lane"><div class="ll">PE</div><div class="track">
+          <div class="blk pe" style="left:17%;width:15%;animation-delay:.2s"></div>
+          <div class="blk pe" style="left:34%;width:15%;animation-delay:.35s"></div>
+          <div class="blk pe" style="left:51%;width:15%;animation-delay:.5s"></div>
+          <div class="blk pe" style="left:68%;width:15%;animation-delay:.65s"></div>
+        </div></div>
+        <div class="lane"><div class="ll">ST</div><div class="track">
+          <div class="blk st" style="left:34%;width:15%;animation-delay:.4s"></div>
+          <div class="blk st" style="left:51%;width:15%;animation-delay:.55s"></div>
+          <div class="blk st" style="left:68%;width:15%;animation-delay:.7s"></div>
+          <div class="blk st" style="left:85%;width:15%;animation-delay:.85s"></div>
+        </div></div>
+        <div class="wall good">墙钟 <b>━━━━━━━━</b> 短（≈ max 单元）</div>
+      </div>
+
+    </div>
+    <p class="note" style="margin-top:18px">实现：double buffer 提供两块可交替 buffer；<code>InjectSyncPass</code> 用 mailbox 把生产/消费连成异步流水；循环 Phase 4 bootstrap 预充把流水「点着」。<b>该往哪边 overlap、buffer 要多深</b>由计算访存比决定——藏不住的暴露项（DRAM 权重税 / 激活暴露 / 写回反压）就是优化目标。</p>
+  </section>
+
+  <footer>A 算多大（推理框架）· B 怎么切块 + 哪种 layout（torch zeus）· C 怎么算到最快（Compiler）　｜　主线已把<b>正确性</b>做扎实，性能主战场 = 把 <b>minitile · double buffer + 访存比 overlap · blocked layout</b> 从思想变成代码</footer>
+
+</div>
+</body>
+</html>
