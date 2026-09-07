@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标量 DMA 批量化</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg:        #F2F5F6;
+    --surface:   #FFFFFF;
+    --surface-2: #E8EDEF;
+    --line:      #CFD9DD;
+    --ink:       #101619;
+    --ink-2:     #46565D;
+    --muted:     #6B7C84;
+    --ld:        #9A6E14;
+    --ld-bg:     #F7EBCF;
+    --stall:     #A8442A;
+    --stall-bg:  #F3DAD1;
+    --read:      #0E6A87;
+    --read-bg:   #D6E9F0;
+    --good:      #1F6B4C;
+    --good-bg:   #D4EADD;
+    --l2:        #6A4C93;
+    --l2-bg:     #E7E0F2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0D1316; --surface:#151E22; --surface-2:#1D282D; --line:#2C3B42;
+      --ink:#E8F0F3; --ink-2:#A9BCC4; --muted:#7E939C;
+      --ld:#E0B45C; --ld-bg:#3A2E14; --stall:#EC8760; --stall-bg:#402016;
+      --read:#58BEDC; --read-bg:#113039; --good:#63C795; --good-bg:#12331F;
+      --l2:#B49BE0; --l2-bg:#2A2140;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0D1316; --surface:#151E22; --surface-2:#1D282D; --line:#2C3B42;
+    --ink:#E8F0F3; --ink-2:#A9BCC4; --muted:#7E939C;
+    --ld:#E0B45C; --ld-bg:#3A2E14; --stall:#EC8760; --stall-bg:#402016;
+    --read:#58BEDC; --read-bg:#113039; --good:#63C795; --good-bg:#12331F;
+    --l2:#B49BE0; --l2-bg:#2A2140;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 46px 26px 76px;
+          display: flex; flex-direction: column; gap: 38px; }
+
+  .eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+             letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0 0 10px; }
+  h1 { font-size: clamp(27px,4vw,38px); font-weight:600; letter-spacing:-.02em;
+       line-height:1.15; text-wrap:balance; margin:0 0 14px; }
+  .lede { font-size:16.5px; color:var(--ink-2); max-width:64ch; margin:0; }
+  .lede b { color:var(--ink); font-weight:600; }
+
+  h2 { font-size:13px; font-weight:600; font-family:"IBM Plex Mono",monospace;
+       letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+       margin:0 0 16px; padding-bottom:9px; border-bottom:1px solid var(--line); }
+
+  .panel { background:var(--surface); border:1px solid var(--line);
+           border-radius:3px; padding:20px 22px; }
+
+  pre { font-family:"IBM Plex Mono",monospace; font-size:12.5px; line-height:1.85;
+        margin:0; overflow-x:auto; color:var(--ink-2); }
+  .fn { color:var(--read); }
+  .vr { color:var(--ink); font-weight:500; }
+  .cm { color:var(--muted); }
+  .num { display:inline-block; width:17px; height:17px; line-height:17px;
+         text-align:center; border-radius:50%; background:var(--ld);
+         color:var(--surface); font-size:10.5px; font-weight:700;
+         font-family:"IBM Plex Sans",sans-serif; margin-right:9px;
+         vertical-align:1px; }
+  .note { font-size:13.5px; color:var(--ink-2); margin:14px 0 0; }
+  .note b { color:var(--ink); font-weight:600; }
+  code { font-family:"IBM Plex Mono",monospace; font-size:.92em;
+         background:var(--surface-2); padding:1px 5px; border-radius:2px; }
+
+  /* 两条路径 */
+  .paths { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:840px){ .paths{grid-template-columns:1fr;} }
+  .path { background:var(--surface); border:1px solid var(--line);
+          border-radius:3px; padding:18px 20px; }
+  .path-t { font-size:14.5px; font-weight:600; margin:0 0 4px; }
+  .path-s { font-size:12.5px; color:var(--muted); margin:0 0 14px;
+            font-family:"IBM Plex Mono",monospace; }
+  .flow { display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+          font-family:"IBM Plex Mono",monospace; font-size:11.5px; margin-bottom:13px; }
+  .node { padding:5px 10px; border-radius:2px; border:1px solid; font-weight:500; }
+  .n-dram { background:var(--surface-2); border-color:var(--line); color:var(--ink-2); }
+  .n-l2   { background:var(--l2-bg); border-color:var(--l2); color:var(--l2); }
+  .n-reg  { background:var(--read-bg); border-color:var(--read); color:var(--read); }
+  .n-unit { background:var(--ld-bg); border-color:var(--ld); color:var(--ld); }
+  .arrow { color:var(--muted); }
+
+  /* 时序图 */
+  .tl-note { font-size:12.5px; color:var(--muted); margin:0 0 20px; }
+  .tl { overflow-x:auto; }
+  .rows { min-width:640px; display:flex; flex-direction:column; gap:5px; }
+  .row { display:grid; grid-template-columns:52px 1fr; align-items:center; gap:10px; height:29px; }
+  .rlab { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--muted);
+          text-align:right; white-space:nowrap; }
+  .lane { position:relative; height:29px; background:var(--surface-2);
+          border-radius:2px; overflow:hidden; }
+  .blk { position:absolute; top:0; height:29px; display:flex; align-items:center;
+         justify-content:center; font-family:"IBM Plex Mono",monospace;
+         font-size:10.5px; font-weight:600; border:1px solid; white-space:nowrap;
+         border-radius:2px; overflow:hidden; }
+  .b-ld    { background:var(--ld-bg);    border-color:var(--ld);    color:var(--ld);    }
+  .b-stall { background:var(--stall-bg); border-color:var(--stall); color:var(--stall); }
+  .b-read  { background:var(--read-bg);  border-color:var(--read);  color:var(--read);  }
+  .b-save  { background:var(--good-bg);  border-color:var(--good);  color:var(--good);
+             border-style:dashed; }
+  .ruler { display:grid; grid-template-columns:52px 1fr; gap:10px; margin-top:7px; }
+  .ticks { position:relative; height:16px; font-family:"IBM Plex Mono",monospace;
+           font-size:10px; color:var(--muted); }
+  .tick { position:absolute; top:0; border-left:1px solid var(--line); padding-left:4px; }
+
+  .sub { font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600;
+         color:var(--ink); margin:22px 0 11px; letter-spacing:.03em; }
+  .sub:first-of-type { margin-top:0; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:17px; margin-top:20px; padding-top:15px;
+            border-top:1px solid var(--line); font-size:12.5px; color:var(--ink-2); }
+  .li { display:flex; align-items:center; gap:7px; }
+  .sw { width:13px; height:13px; border:1px solid; border-radius:2px; flex:none; }
+
+  /* 账 */
+  .ledger { display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
+            gap:1px; background:var(--line); border:1px solid var(--line);
+            border-radius:3px; overflow:hidden; }
+  .cell { background:var(--surface); padding:17px 19px; }
+  .ck { font-size:11.5px; font-family:"IBM Plex Mono",monospace; letter-spacing:.08em;
+        text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
+  .cv { font-size:24px; font-weight:600; letter-spacing:-.015em;
+        font-variant-numeric:tabular-nums; margin:0; line-height:1.15; }
+  .cv.pos { color:var(--good); }
+  .cn { font-size:12.5px; color:var(--muted); margin:6px 0 0; }
+
+  .breakdown { margin-top:18px; border:1px solid var(--line); border-radius:3px;
+               background:var(--surface); overflow:hidden; }
+  .bd-row { display:grid; grid-template-columns:1fr auto; gap:14px; padding:13px 19px;
+            border-bottom:1px solid var(--line); font-size:14px; align-items:baseline; }
+  .bd-row:last-child { border-bottom:none; background:var(--surface-2); }
+  .bd-row b { color:var(--ink); font-weight:600; }
+  .bd-v { font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+          font-weight:600; white-space:nowrap; }
+  .bd-v.pos { color:var(--good); }
+  .bd-k { color:var(--ink-2); }
+  .bd-k small { display:block; color:var(--muted); font-size:12.5px; margin-top:3px; }
+
+  .caveat { font-size:13.5px; color:var(--ink-2); background:var(--surface);
+            border:1px solid var(--line); border-left:3px solid var(--muted);
+            border-radius:3px; padding:15px 18px; margin:0; }
+  .caveat b { color:var(--ink); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">ZeusHigh 中端 Pass · MoE T=4 bf16</p>
+    <h1>一图看懂 BatchScalarDmaLoadsPass</h1>
+    <p class="lede">MoE T=4 每轮循环开头读四个 routing metadata 标量。硬件本可以让它们同时在飞，但中端把每个消费者钉在自己的 DMA 后面，CT 只能一个一个等。把 DMA 全部提到消费之前，<b>每轮省约 500 cycle，全 kernel 22,517 → 20,012</b>。</p>
+  </header>
+
+  <!-- 源码 -->
+  <section class="panel">
+    <h2>Triton kernel 写的四条 load</h2>
+    <pre><span class="num">1</span><span class="vr">off_a</span>   = <span class="fn">tl.load</span>(expert_ids_ptr + block_a)
+<span class="num">2</span><span class="vr">count_a</span> = <span class="fn">tl.load</span>(block_valid_counts_ptr + block_a)
+<span class="num">3</span><span class="vr">off_b</span>   = <span class="fn">tl.load</span>(expert_ids_ptr + block_b, mask=has_b)
+<span class="num">4</span><span class="vr">count_b</span> = <span class="fn">tl.load</span>(block_valid_counts_ptr + block_b, mask=has_b)</pre>
+    <p class="note">两个不同的入参指针、两个不同的下标 —— <b>四个地址互不相关，没有任何真实依赖</b>。RTL 的 <code>LD_CREDIT = 4</code> 允许四条命令同时在飞，且小于 128 字节的搬运一律一个 beat，读 4 字节和读 24 字节同价。</p>
+  </section>
+
+  <!-- tl.load 的两条路径 -->
+  <section>
+    <h2>先说清楚：同样是 tl.load，走的是两条不同的路</h2>
+    <div class="paths">
+      <div class="path">
+        <p class="path-t">tensor 的 tl.load</p>
+        <p class="path-s">a_tile = tl.load(a_ptr + …)  →  [4, 2048]</p>
+        <div class="flow">
+          <span class="node n-dram">DRAM</span>
+          <span class="arrow">──</span><span class="node n-unit">LD 搬运</span><span class="arrow">──▶</span>
+          <span class="node n-l2">L2</span>
+          <span class="arrow">──▶</span><span class="node n-unit">PE / VP 直接消费</span>
+        </div>
+        <p class="note"><b>值就住在 L2</b>，PE 从 L2 直接吃。IR 里这个 buffer 后面<b>一条 <code>memref.load</code> 都没有</b> —— 不需要进寄存器。这是大家默认印象里的 <code>tl.load</code>。</p>
+      </div>
+      <div class="path">
+        <p class="path-t">标量的 tl.load</p>
+        <p class="path-s">off_a = tl.load(expert_ids_ptr + block_a)</p>
+        <div class="flow">
+          <span class="node n-dram">DRAM</span>
+          <span class="arrow">──</span><span class="node n-unit">LD 搬运</span><span class="arrow">──▶</span>
+          <span class="node n-l2">L2 暂存 16B</span>
+          <span class="arrow">──</span><span class="node n-unit">CT 读 13cy</span><span class="arrow">──▶</span>
+          <span class="node n-reg">寄存器</span>
+        </div>
+        <p class="note"><b>多出 L2 → 寄存器这一跳</b>，因为 <code>off_a</code> 要拿去算 weight 地址、<code>count_a</code> 要参与分支条件 —— 这些是标量控制流，必须在 CT 的通用寄存器里。而 <b>CT 没有任何指令能直接读 DRAM</b>，所以只能分两跳走。</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:16px"><b>判据是「这个值最终被谁消费」</b>：被 PE/VP 消费就留在 L2；被 CT 消费就必须再搬进寄存器。所以下面时序图里突然冒出来的 CT，不是多余的一步，是标量路径的必需品 —— 也正是它把四条搬运串成了一条链。</p>
+  </section>
+
+  <!-- 时序图 -->
+  <section class="panel">
+    <h2>四条搬运的时序：改变前 / 改变后</h2>
+    <p class="tl-note">每条 load 单独一行，同一比例尺，横轴是 cycle。阻塞按实测 265cy 等比绘制；发射块（1cy）和 CT 读块（13cy）已放大到可见宽度。</p>
+
+    <p class="sub">改变前 —— 四条首尾相接，一共等四次</p>
+    <div class="tl">
+      <div class="rows">
+        <div class="row"><span class="rlab">① off_a</span><span class="lane">
+          <span class="blk b-ld"   style="left:0%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:3.6%;width:16%">阻塞 265cy</span>
+          <span class="blk b-read" style="left:19.6%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">② count_a</span><span class="lane">
+          <span class="blk b-ld"   style="left:23.2%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:26.8%;width:16%">阻塞 265cy</span>
+          <span class="blk b-read" style="left:42.8%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">③ off_b</span><span class="lane">
+          <span class="blk b-ld"   style="left:46.4%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:50%;width:16%">阻塞 265cy</span>
+          <span class="blk b-read" style="left:66%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">④ count_b</span><span class="lane">
+          <span class="blk b-ld"   style="left:69.6%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:73.2%;width:16%">阻塞 265cy</span>
+          <span class="blk b-read" style="left:89.2%;width:3.6%">CT 读</span>
+        </span></div>
+      </div>
+      <div class="ruler"><span></span><span class="ticks">
+        <span class="tick" style="left:0%">0</span>
+        <span class="tick" style="left:23.2%">265</span>
+        <span class="tick" style="left:46.4%">530</span>
+        <span class="tick" style="left:69.6%">795</span>
+        <span class="tick" style="left:92.8%">1,060 cy</span>
+      </span></div>
+    </div>
+
+    <p class="sub">改变后 —— 四条连发，重叠在一起，只等一次</p>
+    <div class="tl">
+      <div class="rows">
+        <div class="row"><span class="rlab">① off_a</span><span class="lane">
+          <span class="blk b-ld"   style="left:0%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:3.6%;width:16%">阻塞 265cy</span>
+          <span class="blk b-read" style="left:19.6%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">② count_a</span><span class="lane">
+          <span class="blk b-ld"   style="left:1.2%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:4.8%;width:16%">与 ① 重叠</span>
+          <span class="blk b-read" style="left:23.2%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">③ off_b</span><span class="lane">
+          <span class="blk b-ld"   style="left:2.4%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:6%;width:16%">与 ① 重叠</span>
+          <span class="blk b-read" style="left:26.8%;width:3.6%">CT 读</span>
+        </span></div>
+        <div class="row"><span class="rlab">④ count_b</span><span class="lane">
+          <span class="blk b-ld"   style="left:3.6%;width:3.6%">LD</span>
+          <span class="blk b-stall" style="left:7.2%;width:16%">与 ① 重叠</span>
+          <span class="blk b-read" style="left:30.4%;width:3.6%">CT 读</span>
+          <span class="blk b-save" style="left:36%;width:56%">四条搬运重叠 · 省约 800 cy</span>
+        </span></div>
+      </div>
+      <div class="ruler"><span></span><span class="ticks">
+        <span class="tick" style="left:0%">0</span>
+        <span class="tick" style="left:23.2%">265</span>
+        <span class="tick" style="left:46.4%">530</span>
+        <span class="tick" style="left:69.6%">795</span>
+        <span class="tick" style="left:92.8%">1,060 cy</span>
+      </span></div>
+    </div>
+
+    <div class="legend">
+      <span class="li"><span class="sw" style="background:var(--ld-bg);border-color:var(--ld)"></span><code>LD_MOV</code> 发射 DMA，异步，发完就走（1cy）</span>
+      <span class="li"><span class="sw" style="background:var(--stall-bg);border-color:var(--stall)"></span><code>CT_MAIL RecvMails[LD]</code> CT 阻塞等 DMA 落地（约 265cy）</span>
+      <span class="li"><span class="sw" style="background:var(--read-bg);border-color:var(--read)"></span><code>CT_MOV_R_[R]</code> CT 从 L2 取值（13cy）</span>
+    </div>
+  </section>
+
+  <!-- 账 -->
+  <section>
+    <h2>省下来的 cycle 来自哪里</h2>
+    <div class="breakdown">
+      <div class="bd-row">
+        <span class="bd-k"><b>搬运重叠</b><small>②③④ 的 DMA 时间被藏进 ① 里 —— 搬运次数没变，还是四次，但只有一次暴露在关键路径上</small></span>
+        <span class="bd-v pos">主因</span>
+      </div>
+      <div class="bd-row">
+        <span class="bd-k"><b>mail 变少</b><small>四次 <code>CT_MAIL RecvMails[LD]</code> 合成一次；静态口径全 kernel 14 → 11 条，动态上每轮少等 2 次、三轮共少 7 次</small></span>
+        <span class="bd-v pos">−770 cy</span>
+      </div>
+      <div class="bd-row">
+        <span class="bd-k"><b>CT 提前松绑（连锁）</b><small>CT 是全机唯一的顺序发射器，它一停整条流水都发不出去。不再卡在 metadata 上之后，后面 PE/ST/VP 的指令全部提前发出</small></span>
+        <span class="bd-v pos">−1,735 cy</span>
+      </div>
+      <div class="bd-row">
+        <span class="bd-k"><b>合计（VCS 实测，core0）</b><small>22,517 → 20,012，同一 prebuilt session 严格 A/B，只换 zbin</small></span>
+        <span class="bd-v pos">−2,505 cy · −11.1%</span>
+      </div>
+    </div>
+
+    <div class="ledger" style="margin-top:18px">
+      <div class="cell">
+        <p class="ck">每轮循环</p>
+        <p class="cv pos">−500 cy</p>
+        <p class="cn">四次阻塞 → 一次</p>
+      </div>
+      <div class="cell">
+        <p class="ck">搬运总量</p>
+        <p class="cv">不变</p>
+        <p class="cn">还是四次 DMA，省的是等待</p>
+      </div>
+      <div class="cell">
+        <p class="ck">LD 串行间隔</p>
+        <p class="cv">7 → 4 次</p>
+        <p class="cn">四连发版实测（core0）</p>
+      </div>
+      <div class="cell">
+        <p class="ck">PE / VP 占用</p>
+        <p class="cv">0 变化</p>
+        <p class="cn">纯搬运侧优化，不碰计算</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="caveat"><b>③④ 带 mask 的那两条要多绕一步。</b><code>mask=has_b</code> 会把它们切进独立的 <code>scf.if</code>，而上提<b>不允许跨越带 region 的 op</b> —— mailbox 没有 tag，LD→CT 的 completion 按 FIFO 收，跨过 region 会让这条 mail 排到 region 内部所有 mail 前面而接收顺序不变，FIFO 就错位了（真在 <code>zecl_custom_collective</code> 上踩到过）。所以 pass 会先把同条件的相邻 <code>scf.if</code> 挪成紧邻，让上游 <code>CombineIfs</code> 把它们合并，之后 ③④ 才批得到一起。kernel 侧若把 mask 换成「下标 clamp + <code>tl.where</code>」，四条就落在同一 block，可以一次全批。</p>
+
+</div>
+</body>
+</html>

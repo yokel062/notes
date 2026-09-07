@@ -1,0 +1,4470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:,">
+  <title>MoE FFN 零基础交互课 · 从 Dense 到真实算子</title>
+  <style>
+    :root {
+      --bg: #08101b;
+      --bg-soft: #0c1725;
+      --panel: #101d2d;
+      --panel-strong: #142438;
+      --panel-soft: #0d1927;
+      --line: #29405a;
+      --line-soft: #1c3045;
+      --ink: #f1f6fb;
+      --muted: #9aacc0;
+      --quiet: #6f8298;
+      --cyan: #42d4d7;
+      --cyan-soft: rgba(66, 212, 215, 0.12);
+      --amber: #ffbd59;
+      --amber-soft: rgba(255, 189, 89, 0.12);
+      --violet: #a997ff;
+      --violet-soft: rgba(169, 151, 255, 0.12);
+      --green: #5ddd9d;
+      --green-soft: rgba(93, 221, 157, 0.12);
+      --red: #ff7e8a;
+      --red-soft: rgba(255, 126, 138, 0.12);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      --shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 12% -8%, rgba(66, 212, 215, 0.14), transparent 34rem),
+        radial-gradient(circle at 92% 16%, rgba(169, 151, 255, 0.13), transparent 36rem),
+        linear-gradient(180deg, #07101a 0%, var(--bg) 100%);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.58;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(92, 124, 155, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(92, 124, 155, 0.055) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: linear-gradient(to bottom, black, transparent 82%);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    code,
+    .mono {
+      font-family: var(--mono);
+    }
+
+    code {
+      color: #c6f7f5;
+      font-size: 0.92em;
+    }
+
+    .shell {
+      width: min(1500px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 34px 0 64px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 34px 38px 30px;
+      border: 1px solid #34526f;
+      border-radius: 22px;
+      background:
+        linear-gradient(125deg, rgba(66, 212, 215, 0.14), transparent 34%),
+        linear-gradient(305deg, rgba(169, 151, 255, 0.12), transparent 38%),
+        rgba(14, 28, 44, 0.94);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "FFN";
+      position: absolute;
+      right: 28px;
+      top: -40px;
+      color: rgba(255, 255, 255, 0.025);
+      font-family: var(--mono);
+      font-size: 190px;
+      font-weight: 800;
+      letter-spacing: -0.08em;
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 30px;
+      height: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(66, 212, 215, 0.8);
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(34px, 5vw, 62px);
+      line-height: 1.04;
+      letter-spacing: -0.035em;
+    }
+
+    h1 span {
+      color: var(--amber);
+    }
+
+    .hero-copy {
+      max-width: 920px;
+      margin: 16px 0 0;
+      color: #c2cfdd;
+      font-size: 15px;
+    }
+
+    .hero-copy strong {
+      color: var(--ink);
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    .metric {
+      min-height: 86px;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(7, 17, 28, 0.58);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 20px;
+    }
+
+    .metric small {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .tabs {
+      position: sticky;
+      top: 10px;
+      z-index: 20;
+      display: flex;
+      gap: 8px;
+      margin: 22px 0;
+      padding: 8px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(8, 16, 27, 0.9);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(16px);
+    }
+
+    .tab-button {
+      flex: 1 0 auto;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 750;
+      transition: 160ms ease;
+    }
+
+    .tab-button:hover {
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .tab-button[aria-selected="true"] {
+      border-color: rgba(66, 212, 215, 0.38);
+      background: var(--cyan-soft);
+      color: var(--cyan);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+      animation: enter 260ms ease both;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent),
+        rgba(13, 25, 39, 0.92);
+      box-shadow: var(--shadow);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 24px 26px 18px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 25px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-head p {
+      max-width: 820px;
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .section-kicker {
+      margin-bottom: 4px;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: end;
+      gap: 7px 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend i {
+      width: 9px;
+      height: 9px;
+      border-radius: 3px;
+    }
+
+    .legend .semantic {
+      background: var(--cyan);
+    }
+
+    .legend .index {
+      background: var(--violet);
+    }
+
+    .legend .compute {
+      background: var(--amber);
+    }
+
+    .legend .reduce {
+      background: var(--green);
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.72fr);
+      gap: 18px;
+      padding: 20px;
+    }
+
+    .flow-board {
+      min-width: 0;
+      padding: 22px;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        #0a1522;
+      background-size: 30px 30px;
+    }
+
+    .flow-input,
+    .flow-output {
+      display: flex;
+      justify-content: center;
+    }
+
+    .branch-stem {
+      width: 2px;
+      height: 24px;
+      margin: 0 auto;
+      background: linear-gradient(var(--cyan), var(--line));
+    }
+
+    .flow-lanes {
+      display: grid;
+      grid-template-columns: 1.7fr 0.88fr;
+      gap: 16px;
+    }
+
+    .flow-lane {
+      position: relative;
+      padding: 15px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      background: rgba(9, 20, 33, 0.88);
+    }
+
+    .lane-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .lane-label::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 9px rgba(66, 212, 215, 0.7);
+    }
+
+    .shared-lane .lane-label::before {
+      background: var(--amber);
+      box-shadow: 0 0 9px rgba(255, 189, 89, 0.7);
+    }
+
+    .node-chain {
+      display: grid;
+      grid-template-columns: minmax(116px, 1fr) 24px minmax(116px, 1fr) 24px minmax(132px, 1.12fr);
+      align-items: stretch;
+      gap: 5px;
+    }
+
+    .shared-chain {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 20px;
+    }
+
+    .flow-node {
+      position: relative;
+      width: 100%;
+      min-height: 102px;
+      padding: 13px 13px 12px;
+      border: 1px solid var(--node-line, var(--line));
+      border-radius: 11px;
+      background: var(--node-bg, var(--panel));
+      text-align: left;
+      cursor: pointer;
+      transition: 150ms ease;
+    }
+
+    .flow-node:hover,
+    .flow-node.active {
+      transform: translateY(-2px);
+      border-color: var(--node-color, var(--cyan));
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.24);
+    }
+
+    .flow-node.active::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border: 1px solid color-mix(in srgb, var(--node-color, var(--cyan)) 38%, transparent);
+      border-radius: 7px;
+      pointer-events: none;
+    }
+
+    .flow-node.semantic {
+      --node-color: var(--cyan);
+      --node-line: rgba(66, 212, 215, 0.36);
+      --node-bg: var(--cyan-soft);
+    }
+
+    .flow-node.index {
+      --node-color: var(--violet);
+      --node-line: rgba(169, 151, 255, 0.4);
+      --node-bg: var(--violet-soft);
+    }
+
+    .flow-node.compute {
+      --node-color: var(--amber);
+      --node-line: rgba(255, 189, 89, 0.42);
+      --node-bg: var(--amber-soft);
+    }
+
+    .flow-node.reduce {
+      --node-color: var(--green);
+      --node-line: rgba(93, 221, 157, 0.4);
+      --node-bg: var(--green-soft);
+    }
+
+    .node-number {
+      color: var(--node-color, var(--cyan));
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .flow-node strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 14px;
+      line-height: 1.32;
+    }
+
+    .flow-node small {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.42;
+    }
+
+    .input-node,
+    .output-node {
+      width: min(360px, 100%);
+      min-height: 76px;
+      text-align: center;
+    }
+
+    .merge-lines {
+      display: grid;
+      grid-template-columns: 1.7fr 0.88fr;
+      gap: 16px;
+      height: 34px;
+    }
+
+    .merge-lines div {
+      position: relative;
+    }
+
+    .merge-lines div::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 2px;
+      height: 18px;
+      background: var(--line);
+    }
+
+    .merge-lines div:first-child::after,
+    .merge-lines div:last-child::after {
+      content: "";
+      position: absolute;
+      top: 16px;
+      height: 2px;
+      background: var(--line);
+    }
+
+    .merge-lines div:first-child::after {
+      left: 50%;
+      right: -10px;
+    }
+
+    .merge-lines div:last-child::after {
+      left: -10px;
+      right: 50%;
+    }
+
+    .post-chain {
+      display: grid;
+      grid-template-columns: minmax(190px, 280px) 34px minmax(180px, 250px) 34px minmax(180px, 250px);
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .post-chain .flow-node {
+      min-height: 86px;
+    }
+
+    .detail-card {
+      position: sticky;
+      top: 84px;
+      align-self: start;
+      min-height: 470px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background:
+        linear-gradient(145deg, rgba(66, 212, 215, 0.055), transparent 38%),
+        var(--panel-soft);
+    }
+
+    .detail-chip {
+      display: inline-flex;
+      padding: 4px 8px;
+      border: 1px solid rgba(66, 212, 215, 0.36);
+      border-radius: 6px;
+      background: var(--cyan-soft);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .detail-card h3 {
+      margin: 16px 0 4px;
+      font-size: 23px;
+      letter-spacing: -0.02em;
+    }
+
+    .detail-card > p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .detail-list {
+      display: grid;
+      gap: 9px;
+      margin: 20px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .detail-list li {
+      padding: 10px 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.018);
+      color: #c2cfdd;
+      font-size: 12px;
+    }
+
+    .detail-list li::before {
+      content: "→";
+      margin-right: 8px;
+      color: var(--cyan);
+      font-family: var(--mono);
+    }
+
+    .formula {
+      margin-top: 14px;
+      padding: 12px;
+      overflow-x: auto;
+      border: 1px dashed var(--line);
+      border-radius: 9px;
+      background: #09131f;
+      color: #d8e6f2;
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: pre;
+    }
+
+    .callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      margin: 0 20px 20px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 189, 89, 0.3);
+      border-radius: 11px;
+      background: var(--amber-soft);
+      color: #d7c7aa;
+      font-size: 12px;
+    }
+
+    .callout strong {
+      color: var(--amber);
+      font-family: var(--mono);
+    }
+
+    .index-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 18px;
+      padding: 20px;
+    }
+
+    .scenario-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .scenario-button {
+      min-height: 38px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0b1724;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .scenario-button:hover {
+      color: var(--ink);
+      border-color: #4a6683;
+    }
+
+    .scenario-button.active {
+      border-color: rgba(169, 151, 255, 0.5);
+      background: var(--violet-soft);
+      color: var(--violet);
+    }
+
+    .scenario-summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .mini-stat {
+      padding: 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: #0a1521;
+    }
+
+    .mini-stat span {
+      display: block;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .mini-stat strong {
+      display: block;
+      margin-top: 4px;
+      font-family: var(--mono);
+      font-size: 16px;
+    }
+
+    .index-stage {
+      margin-top: 12px;
+      padding: 15px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      background: rgba(8, 18, 30, 0.72);
+    }
+
+    .index-stage h3 {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+
+    .stage-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--violet-soft);
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .index-stage > p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .topk-matrix {
+      display: grid;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .matrix-row {
+      display: grid;
+      grid-template-columns: 54px repeat(var(--columns), minmax(58px, 1fr));
+      gap: 6px;
+      min-width: max-content;
+    }
+
+    .row-label {
+      display: flex;
+      align-items: center;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .route-chip {
+      position: relative;
+      min-height: 42px;
+      padding: 6px 8px;
+      border: 1px solid color-mix(in srgb, var(--route-color) 62%, #233a51);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--route-color) 12%, #0c1927);
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      transition: 130ms ease;
+    }
+
+    .route-chip:hover,
+    .route-chip.highlight {
+      transform: translateY(-1px);
+      border-color: var(--route-color);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--route-color) 18%, transparent);
+    }
+
+    .route-chip b {
+      display: block;
+      color: var(--route-color);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .route-chip small {
+      display: block;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .flat-list,
+    .array-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .bucket-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+    }
+
+    .bucket {
+      padding: 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: #0a1521;
+    }
+
+    .bucket-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .bucket-head strong {
+      color: var(--route-color);
+    }
+
+    .bucket-head span {
+      color: var(--quiet);
+    }
+
+    .bucket-routes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .tiny-route,
+    .padding-slot,
+    .array-cell {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 35px;
+      min-height: 28px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .tiny-route,
+    .array-cell.route-value {
+      border: 1px solid color-mix(in srgb, var(--route-color) 55%, #29405a);
+      background: color-mix(in srgb, var(--route-color) 10%, #0d1b2a);
+      color: var(--route-color);
+      cursor: pointer;
+    }
+
+    .tiny-route.highlight,
+    .array-cell.route-value.highlight {
+      border-color: var(--route-color);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--route-color) 18%, transparent);
+    }
+
+    .padding-slot {
+      border: 1px dashed #33485e;
+      color: #62768b;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .array-group {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .array-line {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .array-name {
+      padding-top: 5px;
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .array-cell {
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.025);
+      color: #c4d2df;
+    }
+
+    .array-cell.remote {
+      border-color: rgba(255, 126, 138, 0.42);
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .trace-card {
+      position: sticky;
+      top: 84px;
+      align-self: start;
+      padding: 20px;
+      border: 1px solid rgba(169, 151, 255, 0.36);
+      border-radius: 14px;
+      background:
+        linear-gradient(145deg, rgba(169, 151, 255, 0.08), transparent 42%),
+        var(--panel-soft);
+    }
+
+    .trace-card h3 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .trace-card > p {
+      margin: 5px 0 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .trace-steps {
+      display: grid;
+      gap: 7px;
+    }
+
+    .trace-step {
+      position: relative;
+      padding: 10px 10px 10px 34px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.018);
+      font-size: 11px;
+    }
+
+    .trace-step::before {
+      content: attr(data-step);
+      position: absolute;
+      left: 9px;
+      top: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 17px;
+      height: 17px;
+      border-radius: 5px;
+      background: var(--violet-soft);
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 8px;
+      font-weight: 800;
+    }
+
+    .trace-result {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid rgba(93, 221, 157, 0.35);
+      border-radius: 9px;
+      background: var(--green-soft);
+      color: #bfe9d4;
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .parallel-content {
+      display: grid;
+      gap: 18px;
+      padding: 20px;
+    }
+
+    .parallel-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .parallel-card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel-soft);
+    }
+
+    .parallel-card header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .parallel-card h3 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .parallel-card header p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .parallel-body {
+      padding: 18px;
+    }
+
+    .dimension-bar {
+      display: flex;
+      min-height: 54px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #09131f;
+    }
+
+    .dimension-bar > div {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      padding: 7px 5px;
+      border-right: 1px solid #36506a;
+      background: var(--bar-color, rgba(66, 212, 215, 0.12));
+      font-family: var(--mono);
+      text-align: center;
+    }
+
+    .dimension-bar > div:last-child {
+      border-right: none;
+    }
+
+    .dimension-bar b {
+      color: var(--bar-ink, var(--cyan));
+      font-size: 11px;
+    }
+
+    .dimension-bar small {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .bar-caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 9px 0 18px;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .split-arrow {
+      margin: 8px 0;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .formula-box {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px dashed var(--line);
+      border-radius: 9px;
+      background: #09131f;
+      color: #c4d3e1;
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.7;
+    }
+
+    .expert-strip {
+      display: grid;
+      grid-template-columns: repeat(18, 1fr);
+      gap: 3px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #09131f;
+    }
+
+    .expert-strip i {
+      display: block;
+      height: 42px;
+      border-radius: 4px;
+      background: var(--expert-color);
+      opacity: 0.76;
+    }
+
+    .ep-ranks {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .ep-rank {
+      padding: 9px 5px;
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.02);
+      text-align: center;
+    }
+
+    .ep-rank b {
+      display: block;
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .ep-rank small {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .truth-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .truth-table th,
+    .truth-table td {
+      padding: 12px 14px;
+      border-right: 1px solid var(--line-soft);
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .truth-table th:last-child,
+    .truth-table td:last-child {
+      border-right: none;
+    }
+
+    .truth-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .truth-table th {
+      background: rgba(66, 212, 215, 0.06);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .truth-table td {
+      color: #c5d2df;
+    }
+
+    .truth-table td:first-child {
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    .collective-path {
+      display: grid;
+      grid-template-columns: 1fr 40px 1fr 40px 1fr;
+      align-items: stretch;
+      gap: 6px;
+    }
+
+    .collective-node {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.022);
+      text-align: center;
+    }
+
+    .collective-node strong {
+      display: block;
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .collective-node small {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .collective-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--quiet);
+      font-family: var(--mono);
+    }
+
+    .glossary-content {
+      padding: 20px;
+    }
+
+    .glossary-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .glossary-table th,
+    .glossary-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .glossary-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .glossary-table th {
+      background: rgba(169, 151, 255, 0.07);
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .glossary-table td:first-child {
+      width: 220px;
+      color: #d7ccff;
+      font-family: var(--mono);
+    }
+
+    .glossary-table td:nth-child(2) {
+      width: 220px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .memory-rules {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 16px;
+    }
+
+    .memory-rule {
+      padding: 13px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .memory-rule b {
+      display: block;
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 18px;
+    }
+
+    .memory-rule span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .source-footer {
+      margin-top: 20px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(9, 19, 31, 0.8);
+      color: var(--quiet);
+      font-size: 11px;
+    }
+
+    .source-footer strong {
+      color: var(--ink);
+    }
+
+    .source-list {
+      display: grid;
+      gap: 5px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      word-break: break-all;
+    }
+
+    .lesson-stack {
+      display: grid;
+      min-width: 0;
+      gap: 22px;
+    }
+
+    .lesson-stack > *,
+    .lesson-section > *,
+    .lesson-welcome > * {
+      min-width: 0;
+    }
+
+    .lesson-welcome .section-head {
+      border-bottom: none;
+      padding-bottom: 14px;
+    }
+
+    .beginner-badge,
+    .concept-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid rgba(66, 212, 215, 0.35);
+      border-radius: 999px;
+      background: var(--cyan-soft);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: 0.04em;
+    }
+
+    .one-line-model {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 210px minmax(0, 1fr);
+      gap: 16px;
+      align-items: stretch;
+      padding: 10px 22px 22px;
+    }
+
+    .mental-card {
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
+    }
+
+    .dense-mental {
+      border-color: rgba(169, 151, 255, 0.32);
+    }
+
+    .moe-mental {
+      border-color: rgba(66, 212, 215, 0.38);
+      background: linear-gradient(145deg, rgba(66, 212, 215, 0.08), rgba(255, 255, 255, 0.01));
+    }
+
+    .mental-label {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .mental-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 84px;
+      margin: 11px 0;
+    }
+
+    .mental-flow > span:not(.mental-arrow) {
+      padding: 10px 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: var(--panel-soft);
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .mental-flow .mental-ffn {
+      color: var(--violet);
+    }
+
+    .mental-flow .mental-router {
+      color: var(--cyan);
+    }
+
+    .mental-flow .mental-experts {
+      color: var(--amber);
+    }
+
+    .mental-arrow {
+      color: var(--quiet);
+      font-family: var(--mono);
+    }
+
+    .mental-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .change-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 10px;
+    }
+
+    .change-arrow strong {
+      display: grid;
+      width: 35px;
+      height: 35px;
+      place-items: center;
+      border: 1px solid rgba(255, 189, 89, 0.42);
+      border-radius: 50%;
+      background: var(--amber-soft);
+      color: var(--amber);
+      font-size: 19px;
+    }
+
+    .first-memory {
+      display: flex;
+      gap: 10px;
+      margin: 0 22px 20px;
+      padding: 13px 15px;
+      border-left: 3px solid var(--cyan);
+      border-radius: 0 9px 9px 0;
+      background: var(--cyan-soft);
+      color: #c4d9e8;
+      font-size: 12px;
+    }
+
+    .first-memory strong {
+      flex: 0 0 auto;
+      color: var(--cyan);
+    }
+
+    .amber-memory {
+      margin: 20px 0 0;
+      border-left-color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .amber-memory strong {
+      color: var(--amber);
+    }
+
+    .lesson-roadmap {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+      padding: 0 22px 22px;
+    }
+
+    .lesson-roadmap a {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 2px 9px;
+      padding: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.018);
+      color: var(--ink);
+      text-decoration: none;
+      transition: 160ms ease;
+    }
+
+    .lesson-roadmap a:hover {
+      border-color: rgba(66, 212, 215, 0.42);
+      transform: translateY(-2px);
+    }
+
+    .lesson-roadmap b {
+      grid-row: 1 / span 2;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: var(--cyan-soft);
+      color: var(--cyan);
+      font-family: var(--mono);
+    }
+
+    .lesson-roadmap span {
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .lesson-roadmap small {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .lesson-section {
+      padding: 24px;
+      scroll-margin-top: 92px;
+    }
+
+    .lesson-title-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 22px;
+    }
+
+    .lesson-title-row h2 {
+      margin: 5px 0 7px;
+      font-size: clamp(21px, 2.6vw, 31px);
+    }
+
+    .lesson-title-row p {
+      max-width: 900px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .lesson-number {
+      display: grid;
+      flex: 0 0 48px;
+      height: 48px;
+      place-items: center;
+      border: 1px solid rgba(66, 212, 215, 0.35);
+      border-radius: 12px;
+      background: var(--cyan-soft);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .ffn-pipeline {
+      display: grid;
+      grid-template-columns: 0.7fr 34px 1.35fr 34px 1.35fr 34px 1fr;
+      gap: 5px;
+      align-items: stretch;
+      padding: 18px;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: rgba(5, 13, 22, 0.46);
+    }
+
+    .ffn-stage {
+      display: flex;
+      min-height: 125px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-soft);
+      text-align: center;
+    }
+
+    .ffn-stage span {
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .ffn-stage strong {
+      margin: 8px 0;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .ffn-stage small {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .twin-stage {
+      border-color: rgba(169, 151, 255, 0.34);
+    }
+
+    .activation-stage {
+      border-color: rgba(255, 189, 89, 0.34);
+    }
+
+    .down-stage {
+      border-color: rgba(93, 221, 157, 0.34);
+    }
+
+    .pipeline-arrow {
+      display: grid;
+      place-items: center;
+      color: var(--quiet);
+      font-family: var(--mono);
+    }
+
+    .expert-clone-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.5fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .clone-explain {
+      padding: 18px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .clone-explain h3,
+    .align-explainer h3,
+    .parallel-gentle-intro h3 {
+      margin: 12px 0 7px;
+      font-size: 17px;
+    }
+
+    .clone-explain p,
+    .align-explainer p,
+    .parallel-gentle-intro p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .expert-shelf {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .shelf-expert,
+    .big-expert {
+      display: flex;
+      min-height: 128px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-soft);
+      text-align: center;
+    }
+
+    .shelf-expert b,
+    .big-expert b {
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .shelf-expert span,
+    .big-expert span {
+      margin: 8px 0;
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .shelf-expert small,
+    .big-expert small {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .shelf-expert.e0,
+    .big-expert.e0 { border-color: rgba(66, 212, 215, 0.42); }
+    .shelf-expert.e1,
+    .big-expert.e1 { border-color: rgba(169, 151, 255, 0.42); }
+    .shelf-expert.e2,
+    .big-expert.e2 { border-color: rgba(255, 189, 89, 0.42); }
+    .shelf-expert.e3,
+    .big-expert.e3 { border-color: rgba(93, 221, 157, 0.42); }
+
+    .plain-language-callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+      margin-top: 16px;
+      padding: 13px 15px;
+      border: 1px dashed rgba(255, 189, 89, 0.4);
+      border-radius: 10px;
+      background: var(--amber-soft);
+    }
+
+    .plain-language-callout span {
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .plain-language-callout p {
+      margin: 0;
+      color: #d6c9ae;
+      font-size: 12px;
+    }
+
+    .why-compare {
+      display: grid;
+      grid-template-columns: 1fr 55px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .compare-card {
+      min-height: 215px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .compare-card h3 {
+      margin: 10px 0 16px;
+      font-size: 18px;
+    }
+
+    .compare-card p {
+      margin: 15px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .compare-tag {
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .moe-cost {
+      border-color: rgba(66, 212, 215, 0.4);
+      background: linear-gradient(145deg, rgba(66, 212, 215, 0.07), rgba(255, 255, 255, 0.015));
+    }
+
+    .versus {
+      color: var(--quiet);
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .compute-bar {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .compute-bar i {
+      height: 45px;
+      border: 1px solid rgba(169, 151, 255, 0.5);
+      border-radius: 5px;
+      background: rgba(169, 151, 255, 0.22);
+    }
+
+    .compute-bar.sparse i {
+      border-color: var(--line-soft);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .compute-bar.sparse i.on {
+      border-color: rgba(66, 212, 215, 0.6);
+      background: rgba(66, 212, 215, 0.34);
+      box-shadow: 0 0 20px rgba(66, 212, 215, 0.12);
+    }
+
+    .benefit-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .benefit-grid article {
+      padding: 15px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .benefit-grid b {
+      color: var(--green);
+      font-size: 12px;
+    }
+
+    .benefit-grid p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .tradeoff-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+      padding: 13px;
+      border: 1px solid rgba(255, 126, 138, 0.25);
+      border-radius: 11px;
+      background: var(--red-soft);
+    }
+
+    .tradeoff-strip div {
+      padding: 6px 9px;
+      border-left: 1px solid rgba(255, 126, 138, 0.28);
+    }
+
+    .tradeoff-strip span,
+    .tradeoff-strip strong {
+      display: block;
+    }
+
+    .tradeoff-strip span {
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .tradeoff-strip strong {
+      margin-top: 4px;
+      color: #e4c7cb;
+      font-size: 10px;
+    }
+
+    .lesson-stepper {
+      display: grid;
+      grid-template-columns: 120px 1fr 120px;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px 12px 0 0;
+      background: rgba(6, 14, 24, 0.7);
+    }
+
+    .lesson-nav-button {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .lesson-nav-button:hover:not(:disabled) {
+      border-color: rgba(66, 212, 215, 0.42);
+      color: var(--ink);
+    }
+
+    .lesson-nav-button.primary {
+      border-color: rgba(66, 212, 215, 0.38);
+      background: var(--cyan-soft);
+      color: var(--cyan);
+    }
+
+    .lesson-nav-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .lesson-progress {
+      text-align: center;
+    }
+
+    .lesson-progress > span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .lesson-dots {
+      display: flex;
+      justify-content: center;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .lesson-dot {
+      width: 22px;
+      height: 5px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: var(--line);
+      cursor: pointer;
+      transition: 160ms ease;
+    }
+
+    .lesson-dot.active {
+      width: 36px;
+      background: var(--cyan);
+      box-shadow: 0 0 14px rgba(66, 212, 215, 0.42);
+    }
+
+    .lesson-stage {
+      min-height: 370px;
+      padding: 24px;
+      overflow: hidden;
+      border: 1px solid var(--line-soft);
+      border-top: none;
+      background:
+        linear-gradient(rgba(66, 212, 215, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(66, 212, 215, 0.025) 1px, transparent 1px),
+        rgba(6, 14, 24, 0.46);
+      background-size: 24px 24px;
+    }
+
+    .lesson-view {
+      display: none;
+      min-height: 320px;
+      animation: enter 260ms ease;
+    }
+
+    .lesson-view.active {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .scene-title {
+      margin-bottom: 22px;
+      color: var(--ink);
+      text-align: center;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .scene-note {
+      max-width: 900px;
+      margin: 22px auto 0;
+      padding: 10px 13px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.025);
+      color: var(--muted);
+      text-align: center;
+      font-size: 11px;
+    }
+
+    .token-line {
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .teaching-token {
+      display: flex;
+      min-width: 165px;
+      flex-direction: column;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-soft);
+      text-align: center;
+    }
+
+    .teaching-token b {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 15px;
+    }
+
+    .teaching-token span {
+      margin: 5px 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .teaching-token small {
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .token-a { border-color: rgba(66, 212, 215, 0.4) !important; }
+    .token-b { border-color: rgba(169, 151, 255, 0.4) !important; }
+    .token-c { border-color: rgba(255, 189, 89, 0.4) !important; }
+
+    .dense-baseline-line {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      margin: 30px auto 0;
+      padding: 12px 18px;
+      border: 1px solid rgba(169, 151, 255, 0.3);
+      border-radius: 10px;
+      background: var(--violet-soft);
+    }
+
+    .dense-baseline-line span {
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .dense-baseline-line strong {
+      font-size: 11px;
+    }
+
+    .big-expert-shelf {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      max-width: 980px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .big-expert {
+      min-height: 155px;
+    }
+
+    .router-table {
+      width: min(100%, 950px);
+      margin: 0 auto;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-soft);
+    }
+
+    .router-row {
+      display: grid;
+      grid-template-columns: 90px repeat(4, minmax(65px, 1fr)) 120px;
+      min-width: 620px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .router-row:last-child {
+      border-bottom: none;
+    }
+
+    .router-row span,
+    .router-row strong {
+      padding: 10px;
+      border-right: 1px solid var(--line-soft);
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .router-row strong {
+      border-right: none;
+      color: var(--amber);
+    }
+
+    .router-row.header-row {
+      background: rgba(169, 151, 255, 0.07);
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .router-row .chosen {
+      background: var(--cyan-soft);
+      color: var(--cyan);
+      font-weight: 800;
+    }
+
+    .router-outputs {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .router-outputs span {
+      padding: 8px 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .route-expansion {
+      display: grid;
+      gap: 10px;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .token-to-routes {
+      display: grid;
+      grid-template-columns: 150px 35px 1fr 1fr;
+      gap: 9px;
+      align-items: center;
+    }
+
+    .token-to-routes > span {
+      color: var(--quiet);
+      text-align: center;
+      font-family: var(--mono);
+    }
+
+    .token-to-routes .teaching-token {
+      min-width: 0;
+    }
+
+    .route-ticket {
+      display: inline-flex;
+      min-height: 38px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 10px;
+      font-style: normal;
+      text-align: center;
+    }
+
+    .route-ticket b {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .route-ticket small {
+      color: var(--quiet);
+      font-size: 9px;
+    }
+
+    .route-ticket.e0 { border-color: rgba(66, 212, 215, 0.52); }
+    .route-ticket.e1 { border-color: rgba(169, 151, 255, 0.52); }
+    .route-ticket.e2 { border-color: rgba(255, 189, 89, 0.52); }
+    .route-ticket.e3 { border-color: rgba(93, 221, 157, 0.52); }
+
+    .bucket-classroom {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .classroom-bucket {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-soft);
+    }
+
+    .classroom-bucket b {
+      grid-column: 1 / -1;
+      margin-bottom: 3px;
+      color: var(--ink);
+      font-size: 11px;
+    }
+
+    .classroom-bucket i {
+      display: grid;
+      min-height: 38px;
+      place-items: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 8px;
+      font-style: normal;
+    }
+
+    .expert-compute-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .compute-lane {
+      display: flex;
+      min-height: 118px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-soft);
+    }
+
+    .compute-lane b {
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .compute-lane span {
+      margin: 8px 0;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .compute-lane strong {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .large-formula {
+      max-width: 760px;
+      margin: 18px auto 0;
+      text-align: center;
+    }
+
+    .merge-equations {
+      display: grid;
+      gap: 9px;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .merge-equation {
+      display: grid;
+      grid-template-columns: 90px 1fr 24px 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .merge-equation b {
+      color: var(--ink);
+    }
+
+    .merge-equation span {
+      padding: 7px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.025);
+      color: var(--muted);
+    }
+
+    .merge-equation i {
+      color: var(--quiet);
+      font-style: normal;
+    }
+
+    .merge-equation strong {
+      color: var(--green);
+    }
+
+    .shared-addition {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 17px;
+      padding: 11px;
+      border: 1px solid rgba(169, 151, 255, 0.3);
+      border-radius: 9px;
+      background: var(--violet-soft);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .shared-addition strong {
+      color: #d7ccff;
+    }
+
+    .final-output-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1.3fr;
+      gap: 11px;
+      align-items: center;
+      max-width: 1000px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .final-output-flow > div {
+      display: flex;
+      min-height: 100px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-soft);
+      text-align: center;
+    }
+
+    .final-output-flow > b {
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-align: center;
+    }
+
+    .final-output-flow span {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .final-output-flow strong {
+      margin-top: 7px;
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .final-output-flow .final-box {
+      border-color: rgba(93, 221, 157, 0.4);
+      background: var(--green-soft);
+    }
+
+    .lesson-explanation {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr 1fr;
+      border: 1px solid var(--line-soft);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+    }
+
+    .explain-main,
+    .explain-cell {
+      min-height: 150px;
+      padding: 17px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .explain-main,
+    .explain-cell:not(:last-child) {
+      border-right: 1px solid var(--line-soft);
+    }
+
+    .explain-main span,
+    .explain-cell span {
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .explain-main h3 {
+      margin: 9px 0 6px;
+      font-size: 16px;
+    }
+
+    .explain-main p,
+    .explain-cell p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .operator-story-chain {
+      display: grid;
+      grid-template-columns: 1fr 32px 1fr 32px 1.15fr 32px 1fr;
+      gap: 6px;
+      align-items: stretch;
+    }
+
+    .story-op {
+      display: flex;
+      min-height: 125px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-soft);
+      text-align: center;
+    }
+
+    .story-op span {
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .story-op strong {
+      margin: 8px 0;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .story-op small {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .story-op.semantic { border-color: rgba(66, 212, 215, 0.38); }
+    .story-op.index { border-color: rgba(169, 151, 255, 0.38); }
+    .story-op.compute { border-color: rgba(255, 189, 89, 0.38); }
+    .story-op.reduce { border-color: rgba(93, 221, 157, 0.38); }
+
+    .story-arrow {
+      display: grid;
+      place-items: center;
+      color: var(--quiet);
+      font-family: var(--mono);
+    }
+
+    .align-explainer {
+      display: grid;
+      grid-template-columns: 1.4fr 0.8fr;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .align-kitchen,
+    .align-boundaries {
+      padding: 17px;
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .order-transform {
+      display: grid;
+      grid-template-columns: 1fr 120px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    .order-transform > div {
+      display: grid;
+      gap: 5px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel-soft);
+    }
+
+    .order-transform b {
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-size: 10px;
+    }
+
+    .order-transform span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .order-transform > strong {
+      color: var(--violet);
+      text-align: center;
+      font-size: 10px;
+    }
+
+    .do-list {
+      display: grid;
+      gap: 7px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .do-list li {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .do-list b {
+      color: var(--ink);
+    }
+
+    .translation-table-wrap {
+      max-width: 100%;
+      min-width: 0;
+      margin-top: 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+    }
+
+    .translation-table {
+      width: 100%;
+      min-width: 820px;
+      border-collapse: collapse;
+      background: var(--panel-soft);
+      font-size: 10px;
+    }
+
+    .translation-table th,
+    .translation-table td {
+      padding: 11px 12px;
+      border-right: 1px solid var(--line-soft);
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .translation-table th:last-child,
+    .translation-table td:last-child {
+      border-right: none;
+    }
+
+    .translation-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .translation-table th {
+      background: rgba(169, 151, 255, 0.07);
+      color: var(--violet);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .translation-table td {
+      color: var(--muted);
+    }
+
+    .translation-table td:nth-child(2) {
+      color: #d8ceff;
+      font-family: var(--mono);
+    }
+
+    .real-shape-ledger {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .real-shape-ledger > div {
+      display: flex;
+      min-height: 82px;
+      flex-direction: column;
+      justify-content: center;
+      padding: 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .real-shape-ledger span {
+      color: var(--quiet);
+      font-size: 9px;
+    }
+
+    .real-shape-ledger b,
+    .real-shape-ledger strong {
+      margin-top: 6px;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .real-shape-ledger .shape-intro {
+      border-color: rgba(66, 212, 215, 0.32);
+      background: var(--cyan-soft);
+    }
+
+    .parallel-gentle-intro {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 18px;
+      align-items: start;
+      margin-top: 16px;
+      padding: 18px;
+      border: 1px solid rgba(93, 221, 157, 0.26);
+      border-radius: 11px;
+      background: var(--green-soft);
+    }
+
+    .parallel-gentle-intro p + p {
+      margin-top: 7px;
+    }
+
+    .quiz-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .quiz-card {
+      min-height: 145px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.018);
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      transition: 160ms ease;
+    }
+
+    .quiz-card:hover,
+    .quiz-card.revealed {
+      border-color: rgba(66, 212, 215, 0.42);
+      background: var(--cyan-soft);
+    }
+
+    .quiz-card span {
+      display: block;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .quiz-card b {
+      display: block;
+      margin-top: 9px;
+      font-size: 11px;
+    }
+
+    .quiz-card p {
+      display: none;
+      margin: 12px 0 0;
+      color: #c4d9e8;
+      font-size: 10px;
+    }
+
+    .quiz-card.revealed p {
+      display: block;
+    }
+
+    .next-reading {
+      display: flex;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 13px 15px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .next-reading strong {
+      flex: 0 0 auto;
+      color: var(--amber);
+    }
+
+    @keyframes enter {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .hero-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .overview-grid,
+      .index-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-card,
+      .trace-card {
+        position: static;
+        min-height: auto;
+      }
+
+      .flow-lanes {
+        grid-template-columns: 1fr;
+      }
+
+      .merge-lines {
+        grid-template-columns: 1fr;
+        height: 20px;
+      }
+
+      .merge-lines div:last-child {
+        display: none;
+      }
+
+      .merge-lines div:first-child::after {
+        display: none;
+      }
+
+      .one-line-model {
+        grid-template-columns: minmax(0, 1fr) 155px minmax(0, 1fr);
+      }
+
+      .ffn-pipeline {
+        grid-template-columns: 0.7fr 26px 1.35fr 26px 1.35fr 26px 1fr;
+      }
+
+      .expert-clone-grid,
+      .align-explainer {
+        grid-template-columns: 1fr;
+      }
+
+      .tradeoff-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .real-shape-ledger {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .real-shape-ledger .shape-intro {
+        grid-column: 1 / -1;
+      }
+
+      .quiz-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 820px) {
+      .shell {
+        width: min(100% - 22px, 1500px);
+        padding-top: 12px;
+      }
+
+      .hero {
+        padding: 24px 20px;
+        border-radius: 16px;
+      }
+
+      .hero::after {
+        display: none;
+      }
+
+      .hero-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .tabs {
+        top: 5px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow-x: visible;
+      }
+
+      .tab-button {
+        min-width: 0;
+        padding-inline: 8px;
+      }
+
+      .tab-button:last-child {
+        grid-column: 1 / -1;
+      }
+
+      .section-head {
+        align-items: start;
+        flex-direction: column;
+        padding: 19px;
+      }
+
+      .legend {
+        justify-content: start;
+      }
+
+      .overview-grid,
+      .index-layout,
+      .parallel-content,
+      .glossary-content {
+        padding: 12px;
+      }
+
+      .flow-board {
+        padding: 13px;
+      }
+
+      .node-chain,
+      .post-chain {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-arrow {
+        min-height: 18px;
+        transform: rotate(90deg);
+      }
+
+      .parallel-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .scenario-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .array-line {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+
+      .collective-path {
+        grid-template-columns: 1fr;
+      }
+
+      .collective-arrow {
+        transform: rotate(90deg);
+      }
+
+      .memory-rules {
+        grid-template-columns: 1fr;
+      }
+
+      .truth-table,
+      .glossary-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+
+      .one-line-model,
+      .why-compare,
+      .lesson-explanation,
+      .operator-story-chain,
+      .parallel-gentle-intro {
+        grid-template-columns: 1fr;
+      }
+
+      .change-arrow {
+        min-height: 76px;
+      }
+
+      .mental-flow {
+        flex-wrap: wrap;
+      }
+
+      .lesson-roadmap {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .lesson-section {
+        padding: 17px 13px;
+      }
+
+      .lesson-title-row {
+        gap: 11px;
+      }
+
+      .lesson-number {
+        flex-basis: 40px;
+        height: 40px;
+      }
+
+      .ffn-pipeline {
+        grid-template-columns: 1fr;
+      }
+
+      .pipeline-arrow,
+      .story-arrow {
+        min-height: 22px;
+        transform: rotate(90deg);
+      }
+
+      .ffn-stage {
+        min-height: 105px;
+      }
+
+      .expert-shelf,
+      .big-expert-shelf,
+      .bucket-classroom,
+      .expert-compute-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .plain-language-callout,
+      .next-reading {
+        grid-template-columns: 1fr;
+        flex-direction: column;
+      }
+
+      .why-compare .versus {
+        padding: 4px;
+      }
+
+      .benefit-grid,
+      .tradeoff-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .lesson-stepper {
+        grid-template-columns: 86px 1fr 86px;
+        gap: 6px;
+        padding: 8px;
+      }
+
+      .lesson-nav-button {
+        padding-inline: 4px;
+        font-size: 9px;
+      }
+
+      .lesson-dots {
+        gap: 4px;
+      }
+
+      .lesson-dot {
+        width: 12px;
+      }
+
+      .lesson-dot.active {
+        width: 22px;
+      }
+
+      .lesson-stage {
+        min-height: 430px;
+        padding: 17px 11px;
+      }
+
+      .lesson-view {
+        min-height: 395px;
+      }
+
+      .token-to-routes {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .token-to-routes .teaching-token {
+        grid-column: 1 / -1;
+      }
+
+      .token-to-routes > span {
+        display: none;
+      }
+
+      .merge-equation {
+        grid-template-columns: 68px 1fr 20px 1fr;
+      }
+
+      .merge-equation strong {
+        grid-column: 1 / -1;
+      }
+
+      .shared-addition {
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .final-output-flow {
+        grid-template-columns: 1fr;
+      }
+
+      .final-output-flow > b::after {
+        content: " ↓";
+      }
+
+      .explain-main,
+      .explain-cell {
+        min-height: auto;
+        border-right: none !important;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .explain-cell:last-child {
+        border-bottom: none;
+      }
+
+      .order-transform {
+        grid-template-columns: 1fr;
+      }
+
+      .order-transform > strong::after {
+        content: " ↓";
+      }
+
+      .real-shape-ledger {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .parallel-gentle-intro {
+        gap: 8px;
+      }
+
+      .quiz-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 500px) {
+      .quiz-grid,
+      .expert-shelf,
+      .big-expert-shelf {
+        grid-template-columns: 1fr;
+      }
+
+      .first-memory {
+        flex-direction: column;
+      }
+
+      .lesson-roadmap {
+        padding-inline: 14px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+        color: #172033;
+      }
+
+      body::before,
+      .tabs {
+        display: none;
+      }
+
+      .shell {
+        width: 100%;
+        padding: 0;
+      }
+
+      .hero,
+      .panel,
+      .detail-card,
+      .trace-card {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+
+      .tab-panel {
+        display: block !important;
+        margin-top: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div class="eyebrow">From Dense FFN to MoE · Beginner First</div>
+      <h1><span>MoE FFN</span> 零基础交互课</h1>
+      <p class="hero-copy">
+        你只需要知道最基础的 Dense FFN。先记住一句话：<strong>MoE 没有发明新的 FFN 数学；
+        它准备了很多个 FFN，让 Router 为每个 token 只挑少数几个去算，再把结果加权合并。</strong>
+        第一页会从“为什么”开始，一步一步走到真实算子和 index；后四页用于继续下钻。
+      </p>
+      <div class="hero-metrics" aria-label="从 Dense FFN 到 MoE FFN 的六步心智模型">
+        <div class="metric"><span>起点</span><strong>1 个 FFN</strong><small>所有 token 共用</small></div>
+        <div class="metric"><span>扩容</span><strong>E 个 Experts</strong><small>每个都是 FFN</small></div>
+        <div class="metric"><span>选择</span><strong>Router Top-K</strong><small>每 token 只选 K 个</small></div>
+        <div class="metric"><span>展开</span><strong>T → T×K</strong><small>token 变成 route</small></div>
+        <div class="metric"><span>执行</span><strong>按 Expert 分桶</strong><small>Grouped GEMM</small></div>
+        <div class="metric"><span>恢复</span><strong>加权合并</strong><small>route 重新变 token</small></div>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="MoE FFN 导览页签">
+      <button class="tab-button" role="tab" aria-selected="true" aria-controls="panel-lesson" id="tab-lesson" data-tab="lesson">① 零基础教学</button>
+      <button class="tab-button" role="tab" aria-selected="false" aria-controls="panel-flow" id="tab-flow" data-tab="flow">② 算子全景</button>
+      <button class="tab-button" role="tab" aria-selected="false" aria-controls="panel-index" id="tab-index" data-tab="index">③ Index 实验</button>
+      <button class="tab-button" role="tab" aria-selected="false" aria-controls="panel-parallel" id="tab-parallel" data-tab="parallel">④ TP / EP</button>
+      <button class="tab-button" role="tab" aria-selected="false" aria-controls="panel-glossary" id="tab-glossary" data-tab="glossary">⑤ 词典</button>
+    </nav>
+
+    <main>
+      <section class="tab-panel active" id="panel-lesson" role="tabpanel" aria-labelledby="tab-lesson" data-panel="lesson">
+        <div class="lesson-stack">
+          <section class="panel lesson-welcome">
+            <div class="section-head">
+              <div>
+                <div class="section-kicker">Lesson 0 · 先建立一句话心智模型</div>
+                <h2>MoE FFN = 很多个 Dense FFN + 按 token 选择 + 加权合并</h2>
+                <p>先不看 index、不看并行、不看硬件。只比较一个 token 在 Dense FFN 和 MoE FFN 中分别经历什么。</p>
+              </div>
+              <span class="beginner-badge">前置知识：只需 Dense FFN</span>
+            </div>
+
+            <div class="one-line-model">
+              <article class="mental-card dense-mental">
+                <span class="mental-label">你已经会的 Dense FFN</span>
+                <div class="mental-flow">
+                  <span class="mental-token">token x</span>
+                  <span class="mental-arrow">→</span>
+                  <span class="mental-ffn">同一个 FFN</span>
+                  <span class="mental-arrow">→</span>
+                  <span class="mental-token">y</span>
+                </div>
+                <p>所有 token 都走同一套权重。模型容量和每个 token 的计算量绑在一起。</p>
+              </article>
+
+              <div class="change-arrow" aria-label="把一个 FFN 变成许多专家并稀疏选择">
+                <span>把 1 个 FFN 复制成 E 个</span>
+                <strong>+</strong>
+                <span>每个 token 只选 K 个</span>
+              </div>
+
+              <article class="mental-card moe-mental">
+                <span class="mental-label">MoE FFN</span>
+                <div class="mental-flow moe-mini-flow">
+                  <span class="mental-token">token x</span>
+                  <span class="mental-arrow">→</span>
+                  <span class="mental-router">Router</span>
+                  <span class="mental-arrow">→</span>
+                  <span class="mental-experts">E₁ + E₃</span>
+                  <span class="mental-arrow">→</span>
+                  <span class="mental-token">y</span>
+                </div>
+                <p>Router 挑出少数专家；每个专家仍然只是一个普通 FFN；最后按权重把多个结果合成一个 y。</p>
+              </article>
+            </div>
+
+            <div class="first-memory">
+              <strong>第一条记忆：</strong>
+              <span><code>Expert</code> 不是神秘的新算子，它就是一套<strong>独立权重的 Dense FFN</strong>。</span>
+            </div>
+
+            <nav class="lesson-roadmap" aria-label="零基础课程阅读顺序">
+              <a href="#lesson-dense"><b>1</b><span>复习 Dense</span><small>专家到底是什么</small></a>
+              <a href="#lesson-why"><b>2</b><span>为什么 MoE</span><small>容量与计算解耦</small></a>
+              <a href="#lesson-journey"><b>3</b><span>亲手走一遍</span><small>token → route → token</small></a>
+              <a href="#lesson-real"><b>4</b><span>翻译成算子</span><small>Align/index 在哪出现</small></a>
+            </nav>
+          </section>
+
+          <section class="panel lesson-section" id="lesson-dense">
+            <div class="lesson-title-row">
+              <span class="lesson-number">01</span>
+              <div>
+                <div class="section-kicker">Dense FFN recap</div>
+                <h2>先确认：一个 Expert 内部，算的还是你熟悉的 FFN</h2>
+                <p>下面四步对 Dense FFN 和每一个 routed/shared expert 都成立；不同 expert 只是在使用不同的权重。</p>
+              </div>
+            </div>
+
+            <div class="ffn-pipeline" aria-label="Dense SwiGLU FFN 的四步计算">
+              <div class="ffn-stage input-stage">
+                <span>输入</span>
+                <strong>x</strong>
+                <small>[H]</small>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="ffn-stage twin-stage">
+                <span>两条线性投影</span>
+                <strong>gate = xW<sub>gate</sub><br>up = xW<sub>up</sub></strong>
+                <small>[H] → [I]，宽度被展开</small>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="ffn-stage activation-stage">
+                <span>SwiGLU</span>
+                <strong>SiLU(gate) ⊙ up</strong>
+                <small>[I]，逐元素门控</small>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="ffn-stage down-stage">
+                <span>Down Projection</span>
+                <strong>act · W<sub>down</sub></strong>
+                <small>[I] → [H]，回到 hidden</small>
+              </div>
+            </div>
+
+            <div class="expert-clone-grid">
+              <div class="clone-explain">
+                <span class="concept-chip">把它复制 E 份</span>
+                <h3>结构相同，权重不同</h3>
+                <p>MoE 不让所有 expert 共用一套 <code>Wgate/Wup/Wdown</code>。每个 expert 都有自己的三套权重，因此能学习不同模式。</p>
+                <div class="formula">Expertₑ(x) = Wdownₑ · (SiLU(xWgateₑ) ⊙ xWupₑ)</div>
+              </div>
+              <div class="expert-shelf" aria-label="四个结构相同但权重不同的专家示意">
+                <div class="shelf-expert e0"><b>Expert 0</b><span>FFN 结构</span><small>权重 W⁰</small></div>
+                <div class="shelf-expert e1"><b>Expert 1</b><span>FFN 结构</span><small>权重 W¹</small></div>
+                <div class="shelf-expert e2"><b>Expert 2</b><span>FFN 结构</span><small>权重 W²</small></div>
+                <div class="shelf-expert e3"><b>Expert 3</b><span>FFN 结构</span><small>权重 W³</small></div>
+              </div>
+            </div>
+
+            <div class="plain-language-callout">
+              <span>通俗类比</span>
+              <p>Dense FFN 像一家店只有一个全能厨师；MoE 像有很多厨师，菜谱结构相同，但各自学到的手艺不同。</p>
+            </div>
+          </section>
+
+          <section class="panel lesson-section" id="lesson-why">
+            <div class="lesson-title-row">
+              <span class="lesson-number">02</span>
+              <div>
+                <div class="section-kicker">Why mixture of experts</div>
+                <h2>为什么不直接把一个 Dense FFN 做得更大？</h2>
+                <p>核心目的不是“省掉 FFN”，而是让<strong>模型拥有很多参数</strong>，同时让<strong>一个 token 只激活其中少数参数</strong>。</p>
+              </div>
+            </div>
+
+            <div class="why-compare">
+              <article class="compare-card dense-cost">
+                <span class="compare-tag">等参数量的大 Dense</span>
+                <h3>8 份容量，8 份都要算</h3>
+                <div class="compute-bar" aria-label="八份 FFN 计算全部激活">
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </div>
+                <p>把 Dense FFN 直接放大，参数增加的同时，每个 token 的矩阵计算也一起增加。</p>
+              </article>
+              <div class="versus">VS</div>
+              <article class="compare-card moe-cost">
+                <span class="compare-tag">MoE · E=8, Top-K=2</span>
+                <h3>存 8 份容量，每个 token 只算 2 份</h3>
+                <div class="compute-bar sparse" aria-label="八个专家中只有两个激活">
+                  <i class="on"></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i><i></i>
+                </div>
+                <p>理想化地看，expert 参数有 8 份，active expert compute 只有 2 份，另加 Router、调度和通信开销。</p>
+              </article>
+            </div>
+
+            <div class="benefit-grid">
+              <article><b>容量更大</b><p>不同 expert 可以存下不同模式，模型总参数量随 expert 数量增长。</p></article>
+              <article><b>计算保持稀疏</b><p>每个 token 只走 Top-K 个 expert，不需要把所有 expert 都执行一遍。</p></article>
+              <article><b>按 token 条件计算</b><p>不同 token 可以选择不同 expert，计算路径随输入变化。</p></article>
+            </div>
+
+            <div class="tradeoff-strip">
+              <div><span>但不是免费午餐</span><strong>Router 可能选不均匀</strong></div>
+              <div><span>新增系统问题</span><strong>token 必须 dispatch / combine</strong></div>
+              <div><span>分布式代价</span><strong>expert 权重和 token 可能跨设备</strong></div>
+              <div><span>硬件执行问题</span><strong>不同 expert 的小批量需要重新分组</strong></div>
+            </div>
+
+            <div class="first-memory amber-memory">
+              <strong>第二条记忆：</strong>
+              <span>MoE 的价值是<strong>总容量看 E，单 token 计算看 K</strong>；通常 <code>K ≪ E</code>。</span>
+            </div>
+          </section>
+
+          <section class="panel lesson-section journey-section" id="lesson-journey">
+            <div class="lesson-title-row">
+              <span class="lesson-number">03</span>
+              <div>
+                <div class="section-kicker">Interactive walkthrough · T=3, E=4, K=2</div>
+                <h2>点“下一步”：亲眼看 token 为什么变成 route，又怎么变回来</h2>
+                <p>这是教学小例子。三条 token，每条选择两个 expert，所以中间一定有 <code>3×2=6</code> 条 route。</p>
+              </div>
+            </div>
+
+            <div class="lesson-stepper" aria-label="MoE FFN 八步教学控制器">
+              <button class="lesson-nav-button" id="lesson-prev" type="button">← 上一步</button>
+              <div class="lesson-progress">
+                <span id="lesson-progress-label">第 1 / 8 步</span>
+                <div class="lesson-dots" role="group" aria-label="选择教学步骤">
+                  <button class="lesson-dot active" data-lesson-step="0" aria-label="输入 token"></button>
+                  <button class="lesson-dot" data-lesson-step="1" aria-label="准备专家"></button>
+                  <button class="lesson-dot" data-lesson-step="2" aria-label="Router Top-K"></button>
+                  <button class="lesson-dot" data-lesson-step="3" aria-label="展开 route"></button>
+                  <button class="lesson-dot" data-lesson-step="4" aria-label="Align 分桶"></button>
+                  <button class="lesson-dot" data-lesson-step="5" aria-label="专家 FFN 计算"></button>
+                  <button class="lesson-dot" data-lesson-step="6" aria-label="加权合并"></button>
+                  <button class="lesson-dot" data-lesson-step="7" aria-label="输出与 residual"></button>
+                </div>
+              </div>
+              <button class="lesson-nav-button primary" id="lesson-next" type="button">下一步 →</button>
+            </div>
+
+            <div class="lesson-stage" id="lesson-stage">
+              <div class="lesson-view active" data-lesson-view="0">
+                <div class="scene-title">起点：3 个 token 准备进入 FFN</div>
+                <div class="token-line">
+                  <div class="teaching-token token-a"><b>x₀</b><span>“写一个循环”</span><small>hidden[0]</small></div>
+                  <div class="teaching-token token-b"><b>x₁</b><span>“计算 2+3”</span><small>hidden[1]</small></div>
+                  <div class="teaching-token token-c"><b>x₂</b><span>“解释春天”</span><small>hidden[2]</small></div>
+                </div>
+                <div class="dense-baseline-line">
+                  <span>Dense 做法</span><strong>x₀、x₁、x₂ 全部走同一个 FFN</strong>
+                </div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="1">
+                <div class="scene-title">MoE 先准备 4 个权重不同的 FFN</div>
+                <div class="big-expert-shelf">
+                  <div class="big-expert e0"><span>E0</span><b>Expert FFN 0</b><small>Wgate⁰ · Wup⁰ · Wdown⁰</small></div>
+                  <div class="big-expert e1"><span>E1</span><b>Expert FFN 1</b><small>Wgate¹ · Wup¹ · Wdown¹</small></div>
+                  <div class="big-expert e2"><span>E2</span><b>Expert FFN 2</b><small>Wgate² · Wup² · Wdown²</small></div>
+                  <div class="big-expert e3"><span>E3</span><b>Expert FFN 3</b><small>Wgate³ · Wup³ · Wdown³</small></div>
+                </div>
+                <div class="scene-note">此时还没决定谁处理哪个 token。Expert 编号只是权重集合的编号。</div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="2">
+                <div class="scene-title">Router 给每个 token 的 expert 打分，只保留 Top-2</div>
+                <div class="router-table" role="table" aria-label="三个 token 的 Router Top-2 结果">
+                  <div class="router-row header-row" role="row"><span>token</span><span>E0</span><span>E1</span><span>E2</span><span>E3</span><strong>Top-2</strong></div>
+                  <div class="router-row" role="row"><span>x₀</span><span class="chosen">0.72</span><span>0.04</span><span class="chosen">0.28</span><span>0.01</span><strong>E0, E2</strong></div>
+                  <div class="router-row" role="row"><span>x₁</span><span>0.06</span><span class="chosen">0.40</span><span class="chosen">0.60</span><span>0.03</span><strong>E2, E1</strong></div>
+                  <div class="router-row" role="row"><span>x₂</span><span class="chosen">0.30</span><span>0.04</span><span>0.05</span><span class="chosen">0.70</span><strong>E3, E0</strong></div>
+                </div>
+                <div class="router-outputs">
+                  <span><code>topk_ids</code>：选中了谁</span>
+                  <span><code>topk_weights</code>：各自占多大比例</span>
+                </div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="3">
+                <div class="scene-title">一个 token 选择两个 expert，于是逻辑上展开成两张“任务单”</div>
+                <div class="route-expansion">
+                  <div class="token-to-routes">
+                    <div class="teaching-token token-a"><b>x₀</b><span>token 0</span></div>
+                    <span>→</span>
+                    <div class="route-ticket e0"><b>q0</b><span>t0 → E0</span><small>weight 0.72</small></div>
+                    <div class="route-ticket e2"><b>q1</b><span>t0 → E2</span><small>weight 0.28</small></div>
+                  </div>
+                  <div class="token-to-routes">
+                    <div class="teaching-token token-b"><b>x₁</b><span>token 1</span></div>
+                    <span>→</span>
+                    <div class="route-ticket e2"><b>q2</b><span>t1 → E2</span><small>weight 0.60</small></div>
+                    <div class="route-ticket e1"><b>q3</b><span>t1 → E1</span><small>weight 0.40</small></div>
+                  </div>
+                  <div class="token-to-routes">
+                    <div class="teaching-token token-c"><b>x₂</b><span>token 2</span></div>
+                    <span>→</span>
+                    <div class="route-ticket e3"><b>q4</b><span>t2 → E3</span><small>weight 0.70</small></div>
+                    <div class="route-ticket e0"><b>q5</b><span>t2 → E0</span><small>weight 0.30</small></div>
+                  </div>
+                </div>
+                <div class="scene-note"><code>q = token_id × K + topk_slot</code>。q 是“token 去某个 expert 的一次访问”，这就是 route。</div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="4">
+                <div class="scene-title">Align 不改选择结果，只把任务单按 expert 重新排队</div>
+                <div class="bucket-classroom">
+                  <div class="classroom-bucket e0"><b>Expert 0 队列</b><span class="route-ticket e0">q0</span><span class="route-ticket e0">q5</span><i>pad</i><i>pad</i></div>
+                  <div class="classroom-bucket e1"><b>Expert 1 队列</b><span class="route-ticket e1">q3</span><i>pad</i><i>pad</i><i>pad</i></div>
+                  <div class="classroom-bucket e2"><b>Expert 2 队列</b><span class="route-ticket e2">q1</span><span class="route-ticket e2">q2</span><i>pad</i><i>pad</i></div>
+                  <div class="classroom-bucket e3"><b>Expert 3 队列</b><span class="route-ticket e3">q4</span><i>pad</i><i>pad</i><i>pad</i></div>
+                </div>
+                <div class="scene-note">这里为了能手算使用 <code>B=4</code>。真实 16B T4 使用 <code>B=64</code>。padding 只是执行形状，不是新增 token。</div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="5">
+                <div class="scene-title">每个 expert 一次拿到自己的队列，用自己的 FFN 权重计算</div>
+                <div class="expert-compute-grid">
+                  <div class="compute-lane e0"><b>E0 weights</b><span>q0, q5</span><strong>→ p0, p5</strong></div>
+                  <div class="compute-lane e1"><b>E1 weights</b><span>q3</span><strong>→ p3</strong></div>
+                  <div class="compute-lane e2"><b>E2 weights</b><span>q1, q2</span><strong>→ p1, p2</strong></div>
+                  <div class="compute-lane e3"><b>E3 weights</b><span>q4</span><strong>→ p4</strong></div>
+                </div>
+                <div class="formula large-formula">p<sub>q</sub> = Expert<sub>expert(q)</sub>(x<sub>token(q)</sub>)</div>
+                <div class="scene-note">执行顺序已经是 expert-major，但结果仍写回以 q 命名的位置，所以以后能找到它原来属于哪个 token。</div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="6">
+                <div class="scene-title">按原 token 把两条 route 找回来，乘 Router weight 后求和</div>
+                <div class="merge-equations">
+                  <div class="merge-equation token-a"><b>token 0</b><span>0.72 × p0</span><i>+</i><span>0.28 × p1</span><strong>= routed y₀</strong></div>
+                  <div class="merge-equation token-b"><b>token 1</b><span>0.60 × p2</span><i>+</i><span>0.40 × p3</span><strong>= routed y₁</strong></div>
+                  <div class="merge-equation token-c"><b>token 2</b><span>0.70 × p4</span><i>+</i><span>0.30 × p5</span><strong>= routed y₂</strong></div>
+                </div>
+                <div class="shared-addition"><span>当前模型还有 Shared Expert：</span><strong>最终 FFN 输出 = routed yₜ + shared(xₜ)</strong></div>
+              </div>
+
+              <div class="lesson-view" data-lesson-view="7">
+                <div class="scene-title">route 维度消失，重新得到每个 token 一行 [H] 输出</div>
+                <div class="final-output-flow">
+                  <div><span>6 条 route partial</span><strong>[T,K,H]</strong></div>
+                  <b>加权 reduce</b>
+                  <div><span>3 条 token 输出</span><strong>[T,H]</strong></div>
+                  <b>外层 residual</b>
+                  <div class="final-box"><span>Decoder block 输出</span><strong>x + MoE_FFN(x)</strong></div>
+                </div>
+                <div class="scene-note">Shared expert 的加法属于 MoE FFN 内；<code>x + ...</code> 的 residual 通常属于 decoder block 外层。不要混成同一个加法。</div>
+              </div>
+            </div>
+
+            <div class="lesson-explanation" aria-live="polite">
+              <div class="explain-main">
+                <span id="lesson-step-tag">STEP 1 · INPUT</span>
+                <h3 id="lesson-step-title">先从 Dense FFN 的输入开始</h3>
+                <p id="lesson-step-copy">输入是 T 行 hidden。Dense FFN 会让每一行都经过同一套 FFN 权重；MoE 的改变发生在“选择哪套 FFN 权重”。</p>
+              </div>
+              <div class="explain-cell">
+                <span>为什么需要这一步</span>
+                <p id="lesson-step-why">先固定 token 和 hidden 的概念，避免以后把 token id、route id、expert id 混成一种 index。</p>
+              </div>
+              <div class="explain-cell">
+                <span>这一步产出什么</span>
+                <p id="lesson-step-output"><code>hidden[T,H]</code>，教学例子里 T=3。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel lesson-section" id="lesson-real">
+            <div class="lesson-title-row">
+              <span class="lesson-number">04</span>
+              <div>
+                <div class="section-kicker">From story to real operators</div>
+                <h2>把刚才的故事翻译成真实算子：Align 就出现在这里</h2>
+                <p>下面每个概念都能一一对应到代码里的 tensor、index 和 consumer；先看职责，再看名字。</p>
+              </div>
+            </div>
+
+            <div class="operator-story-chain" aria-label="MoE FFN 的概念与真实算子链">
+              <div class="story-op semantic"><span>① 谁来处理</span><strong>Router + Top-K</strong><small>生成专家选择与权重</small></div>
+              <div class="story-arrow">→</div>
+              <div class="story-op index"><span>② 怎么排队</span><strong>MoE Align Block Size</strong><small>按 expert 分桶并对齐</small></div>
+              <div class="story-arrow">→</div>
+              <div class="story-op compute"><span>③ 真正算 FFN</span><strong>Grouped GEMM</strong><small>Gate/Up → SwiGLU → Down</small></div>
+              <div class="story-arrow">→</div>
+              <div class="story-op reduce"><span>④ 怎么变回 token</span><strong>Weighted Reduce</strong><small>按 weight 合并 route</small></div>
+            </div>
+
+            <div class="align-explainer">
+              <div class="align-kitchen">
+                <span class="concept-chip">为什么必须有 Align？</span>
+                <h3>因为 Top-K 给的是“按顾客排列的订单”，GEMM 想要“按菜品排列的订单”</h3>
+                <div class="order-transform">
+                  <div><b>Router 输出 · token-major</b><span>t0: E0, E2</span><span>t1: E2, E1</span><span>t2: E3, E0</span></div>
+                  <strong>Align<br>重新排队</strong>
+                  <div><b>Grouped GEMM 输入 · expert-major</b><span>E0: q0, q5</span><span>E1: q3</span><span>E2: q1, q2</span><span>E3: q4</span></div>
+                </div>
+              </div>
+              <div class="align-boundaries">
+                <h3>Align 做什么 / 不做什么</h3>
+                <ul class="do-list">
+                  <li><b>✓ 做：</b>建立 <code>q=t×K+slot</code></li>
+                  <li><b>✓ 做：</b>global expert → local expert / -1</li>
+                  <li><b>✓ 做：</b>按 expert stable bucket</li>
+                  <li><b>✓ 做：</b>按 block size 补齐执行槽位</li>
+                  <li><b>✗ 不做：</b>不重新 Top-K 选择 expert</li>
+                  <li><b>✗ 不做：</b>不计算 Gate/Up/Down</li>
+                  <li><b>✗ 不做：</b>不乘 topk weight</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="translation-table-wrap">
+              <table class="translation-table">
+                <thead>
+                  <tr><th>刚才故事里的东西</th><th>真实名字</th><th>shape / 值</th><th>谁产生 → 谁消费</th><th>一句人话</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>每张订单选了哪位厨师</td><td><code>topk_ids</code></td><td>[T,K]</td><td>Router → Align</td><td>global expert id</td></tr>
+                  <tr><td>每位厨师结果占多少</td><td><code>topk_weights</code></td><td>[T,K]</td><td>Router → final reduce</td><td>route 混合权重</td></tr>
+                  <tr><td>任务单永久编号 q</td><td><code>flat_idx</code></td><td>0…T×K-1</td><td>Top-K layout → 全链路</td><td>一条 token-expert route</td></tr>
+                  <tr><td>按厨师重排后的订单</td><td><code>sorted_token_ids</code></td><td>[padded routes]</td><td>Align → Grouped GEMM</td><td>名字叫 token，实际装 route id</td></tr>
+                  <tr><td>这个 block 用谁的权重</td><td><code>expert_ids</code></td><td>[routing blocks]</td><td>Align → Grouped GEMM</td><td>一项管一整个 block</td></tr>
+                  <tr><td>block 中有几张真订单</td><td><code>block_valid_counts</code></td><td>[routing blocks]</td><td>Align → Grouped GEMM</td><td>其余 lane 是 padding</td></tr>
+                  <tr><td>专家算出的单条结果</td><td><code>partial</code></td><td>[core,T,K,H]</td><td>Grouped GEMM → Reduce</td><td>仍按 q 的原位置写回</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="real-shape-ledger">
+              <div class="shape-intro"><span>换回 16B T4 真实形状</span><strong>只替换数字，故事完全不变</strong></div>
+              <div><span>输入 token</span><b>T = 4</b></div>
+              <div><span>每 token 选择</span><b>K = 6</b></div>
+              <div><span>真实 routes</span><b>R = T×K = 24</b></div>
+              <div><span>Align block</span><b>B = 64</b></div>
+              <div><span>专家 FFN hidden</span><b>H = 2048</b></div>
+              <div><span>TP-local intermediate</span><b>I = 352</b></div>
+            </div>
+
+            <div class="parallel-gentle-intro">
+              <span class="concept-chip">最后再加并行，不要提前背</span>
+              <div>
+                <h3>单卡故事懂了以后，TP / EP 只是“东西太大，需要分开放”</h3>
+                <p><strong>TP</strong>：一个 expert 太宽，把它的 intermediate 维 I 切给多个 rank；大家算同一个 expert 的不同片段，最后求和。</p>
+                <p><strong>EP</strong>：expert 太多，把 expert 集合切给多个 rank；每个 rank 只负责自己拥有的 expert，remote route 记成 <code>-1</code>。</p>
+                <p><strong>Zeus 双核</strong>：设备内部再拆一层工作，不改变 Router、route 和 expert 的数学定义。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel lesson-section checkpoint-section">
+            <div class="lesson-title-row">
+              <span class="lesson-number">✓</span>
+              <div>
+                <div class="section-kicker">Self check</div>
+                <h2>能回答这 5 题，就已经建立了 MoE FFN 基本功</h2>
+                <p>先自己回答，再点卡片看答案。不要求记 shape，只检查概念有没有串起来。</p>
+              </div>
+            </div>
+            <div class="quiz-grid">
+              <button class="quiz-card" type="button"><span>Q1</span><b>Expert 到底是什么？</b><p>一套独立权重的普通 FFN；结构通常相同，权重不同。</p></button>
+              <button class="quiz-card" type="button"><span>Q2</span><b>一条 route 是什么？</b><p>一个 token 去一个被选 expert 的一次访问，即 token-expert pair。</p></button>
+              <button class="quiz-card" type="button"><span>Q3</span><b>Align 会重新选择 expert 吗？</b><p>不会。Router 已经选完；Align 只负责映射、分桶和对齐。</p></button>
+              <button class="quiz-card" type="button"><span>Q4</span><b>为什么 Grouped GEMM 要分桶？</b><p>把使用同一 expert 权重的 route 放在一起，形成规则的批量矩阵计算。</p></button>
+              <button class="quiz-card" type="button"><span>Q5</span><b>route 如何重新变回 token？</b><p>按 q 找回原 token/slot，乘 topk weight，再沿 K 维求和。</p></button>
+            </div>
+            <div class="next-reading">
+              <strong>建议阅读顺序</strong>
+              <span>先完成本页八步 → 去“② 算子全景”看上下游 → 去“③ Index 实验”点击 q → 最后再看“④ TP / EP”。</span>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-flow" role="tabpanel" aria-labelledby="tab-flow" data-panel="flow">
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">End-to-end local graph</div>
+              <h2>同一个 hidden，分成 Routed 与 Shared 两条支路</h2>
+              <p>点击任意节点，右侧会解释它的输入、输出、数学语义和最容易混淆的边界。</p>
+            </div>
+            <div class="legend" aria-label="节点颜色图例">
+              <span><i class="semantic"></i>模型语义</span>
+              <span><i class="index"></i>索引/调度</span>
+              <span><i class="compute"></i>专家计算</span>
+              <span><i class="reduce"></i>归约/通信</span>
+            </div>
+          </div>
+
+          <div class="overview-grid">
+            <div class="flow-board">
+              <div class="flow-input">
+                <button class="flow-node input-node semantic active" data-detail="hidden">
+                  <span class="node-number">INPUT</span>
+                  <strong>hidden</strong>
+                  <small>[T,H] · 16B T4 = [4,2048]</small>
+                </button>
+              </div>
+              <div class="branch-stem" aria-hidden="true"></div>
+
+              <div class="flow-lanes">
+                <div class="flow-lane routed-lane">
+                  <div class="lane-label">Routed expert path · 稀疏分支</div>
+                  <div class="node-chain">
+                    <button class="flow-node semantic" data-detail="router">
+                      <span class="node-number">01 · SELECT</span>
+                      <strong>Router + biased Top-K</strong>
+                      <small>topk_ids [T,K]<br>topk_weights [T,K]</small>
+                    </button>
+                    <div class="flow-arrow" aria-hidden="true">→</div>
+                    <button class="flow-node index" data-detail="align">
+                      <span class="node-number">02 · BUCKET</span>
+                      <strong>MoE Align Block Size</strong>
+                      <small>token-major → expert-major<br>4 张执行索引表</small>
+                    </button>
+                    <div class="flow-arrow" aria-hidden="true">→</div>
+                    <button class="flow-node compute" data-detail="routed">
+                      <span class="node-number">03 · COMPUTE</span>
+                      <strong>Grouped GEMM + SwiGLU + Down</strong>
+                      <small>partial [2,T,K,H]<br>按 flat_idx 写回</small>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flow-lane shared-lane">
+                  <div class="lane-label">Shared expert path · 稠密分支</div>
+                  <div class="shared-chain">
+                    <button class="flow-node compute" data-detail="shared">
+                      <span class="node-number">04 · ALWAYS ON</span>
+                      <strong>Shared Gate/Up + SwiGLU + Down</strong>
+                      <small>不经过 Router / Align<br>shared_partial [2,T,H]</small>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="merge-lines" aria-hidden="true"><div></div><div></div></div>
+
+              <div class="post-chain">
+                <button class="flow-node reduce" data-detail="reduce">
+                  <span class="node-number">05 · MERGE</span>
+                  <strong>moe_sum_reduce_core_partial</strong>
+                  <small>Σcore · Σroute×weight · +shared</small>
+                </button>
+                <div class="flow-arrow" aria-hidden="true">→</div>
+                <button class="flow-node reduce" data-detail="collective">
+                  <span class="node-number">06 · DISTRIBUTED</span>
+                  <strong>TP AR / EP Combine</strong>
+                  <small>恢复 TP partial<br>汇总 expert owner</small>
+                </button>
+                <div class="flow-arrow" aria-hidden="true">→</div>
+                <button class="flow-node semantic" data-detail="residual">
+                  <span class="node-number">OUTSIDE FFN</span>
+                  <strong>Outer Residual</strong>
+                  <small>x + MoE_FFN(x)<br>不在 fused dev 链内</small>
+                </button>
+              </div>
+            </div>
+
+            <aside class="detail-card" id="node-detail" aria-live="polite">
+              <span class="detail-chip">INPUT</span>
+              <h3>hidden [T,H]</h3>
+              <p>MoE FFN 的共同输入；Router、Routed experts 和 Shared expert 都从这里读取。</p>
+              <ul class="detail-list">
+                <li>16B T4 形状是 <code>[4,2048]</code></li>
+                <li>Router 用它决定每个 token 选择哪些 expert</li>
+                <li>专家 MLP 用同一行 hidden 做 gate/up/down</li>
+                <li>外层 residual 不属于本页的本地 fused FFN 链</li>
+              </ul>
+              <div class="formula">x_t ∈ R^H
+Router(x_t) → routes
+Expert_e(x_t) → FFN contribution</div>
+            </aside>
+          </div>
+
+          <div class="callout">
+            <strong>核心边界</strong>
+            <div>
+              当前 routed 三融合 kernel 只产生每条 route 的专家输出，不在内部乘
+              <code>topk_weights</code>。route weight 留到最终
+              <code>moe_sum_reduce_core_partial</code>，这样 partial 仍保持
+              <code>[2,T,K,H]</code> 的清晰 ABI。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-index" role="tabpanel" aria-labelledby="tab-index" data-panel="index">
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Stable bucket + direct scatter-back</div>
+              <h2>Index 是怎么从 Top-K 一路走到输出的</h2>
+              <p>先用小 block 手算，再切到 EP global-to-local 例子，最后看 16B T4 的真实 B=64 布局。</p>
+            </div>
+            <div class="legend">
+              <span><i class="semantic"></i>global expert</span>
+              <span><i class="index"></i>local bucket</span>
+              <span><i class="compute"></i>routing block</span>
+            </div>
+          </div>
+
+          <div class="index-layout">
+            <div>
+              <div class="scenario-bar" role="group" aria-label="索引演示场景">
+                <button class="scenario-button active" data-scenario="toy">教学小例子 · T4 K2 B4</button>
+                <button class="scenario-button" data-scenario="ep">EP 映射 · global → local / -1</button>
+                <button class="scenario-button" data-scenario="sixteen">16B T4 文档路由 · K6 B64</button>
+              </div>
+
+              <div class="scenario-summary" id="scenario-summary"></div>
+
+              <div class="index-stage">
+                <h3><span class="stage-index">1</span>Top-K 输出：token-major route table</h3>
+                <p><code>topk_ids[t,slot]</code> 是 global expert id；每个格子同时拥有唯一的 <code>flat_idx = t×K+slot</code>。</p>
+                <div class="topk-matrix" id="topk-matrix"></div>
+              </div>
+
+              <div class="index-stage">
+                <h3><span class="stage-index">2</span>Flatten：先给每条 route 一个永久编号</h3>
+                <p>这个编号贯穿 Align、Grouped GEMM 和 Reduce；它不是普通 token id。</p>
+                <div class="flat-list" id="flat-list"></div>
+              </div>
+
+              <div class="index-stage">
+                <h3><span class="stage-index">3</span>Align：global-to-local，然后按 expert stable bucket</h3>
+                <p>同一 expert 的 route 保持原输入顺序；EP rank 不拥有的 expert 统一进入 <code>-1</code> remote bucket。</p>
+                <div class="bucket-grid" id="bucket-grid"></div>
+              </div>
+
+              <div class="index-stage">
+                <h3><span class="stage-index">4</span>输出四张 Grouped GEMM 执行表</h3>
+                <p>默认公共 ABI 用 <code>R=T×K</code> 作为 padding sentinel；fused relaxed 路径可不写 padding，必须以 count 为准。</p>
+                <div class="array-group" id="array-group"></div>
+              </div>
+            </div>
+
+            <aside class="trace-card" aria-live="polite">
+              <h3>单条 Route 追踪</h3>
+              <p>点击左侧任意彩色 route，观察同一个 <code>q</code> 如何跨越全部表。</p>
+              <div class="trace-steps" id="route-trace"></div>
+              <div class="trace-result" id="trace-result"></div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-parallel" role="tabpanel" aria-labelledby="tab-parallel" data-panel="parallel">
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Three independent ownership layers</div>
+              <h2>TP、EP、Zeus 双核分别切了什么</h2>
+              <p>最稳的理解方式：TP 切一个 expert 的 intermediate，EP 切 expert 集合，双核只是单设备内部再次拆工作。</p>
+            </div>
+          </div>
+
+          <div class="parallel-content">
+            <div class="parallel-grid">
+              <article class="parallel-card">
+                <header>
+                  <h3>TP · 切 Intermediate I</h3>
+                  <p>所有 TP rank 都参与同一条 route，但各自只持有 expert 的一段 I。</p>
+                </header>
+                <div class="parallel-body">
+                  <div class="dimension-bar">
+                    <div style="--bar-color:rgba(66,212,215,.15);--bar-ink:var(--cyan)"><b>Full expert I = 1408</b><small>Wgate / Wup rows · Wdown columns</small></div>
+                  </div>
+                  <div class="split-arrow">↓ TP4 沿 I 切分</div>
+                  <div class="dimension-bar">
+                    <div><b>TP0</b><small>I=352</small></div>
+                    <div><b>TP1</b><small>I=352</small></div>
+                    <div><b>TP2</b><small>I=352</small></div>
+                    <div><b>TP3</b><small>I=352</small></div>
+                  </div>
+                  <div class="split-arrow">↓ 单个 TP rank 内再分给 2 个 Zeus core</div>
+                  <div class="dimension-bar">
+                    <div style="--bar-color:rgba(255,189,89,.14);--bar-ink:var(--amber)"><b>core 0</b><small>logical 176 · physical 256</small></div>
+                    <div style="--bar-color:rgba(255,189,89,.09);--bar-ink:var(--amber)"><b>core 1</b><small>logical 176 · physical 256</small></div>
+                  </div>
+                  <div class="bar-caption"><span>16B routed I</span><span>padding 不改变数学</span></div>
+                  <div class="formula-box">Wgateᵖ, Wupᵖ : [I/TP, H]
+Wdownᵖ          : [H, I/TP]
+
+yᵖ = Wdownᵖ · SwiGLU(Wgateᵖx, Wupᵖx)
+y  = ΣTP-rank yᵖ</div>
+                </div>
+              </article>
+
+              <article class="parallel-card">
+                <header>
+                  <h3>EP · 切 Expert 集合</h3>
+                  <p>Router 给出 global expert id；每个 EP rank 只计算自己拥有的专家。</p>
+                </header>
+                <div class="parallel-body">
+                  <div class="expert-strip" aria-label="288 个 global expert 的示意条带">
+                    <i style="--expert-color:#a997ff"></i><i style="--expert-color:#a997ff"></i><i style="--expert-color:#a997ff"></i><i style="--expert-color:#a997ff"></i>
+                    <i style="--expert-color:#6fc3ff"></i><i style="--expert-color:#6fc3ff"></i><i style="--expert-color:#6fc3ff"></i><i style="--expert-color:#6fc3ff"></i>
+                    <i style="--expert-color:#5ddd9d"></i><i style="--expert-color:#5ddd9d"></i><i style="--expert-color:#5ddd9d"></i><i style="--expert-color:#5ddd9d"></i>
+                    <i style="--expert-color:#ffbd59"></i><i style="--expert-color:#ffbd59"></i><i style="--expert-color:#ffbd59"></i><i style="--expert-color:#ffbd59"></i>
+                    <i style="--expert-color:#ff7e8a"></i><i style="--expert-color:#ff7e8a"></i>
+                  </div>
+                  <div class="ep-ranks">
+                    <div class="ep-rank"><b>EP0</b><small>global 0…71</small></div>
+                    <div class="ep-rank"><b>EP1</b><small>global 72…143</small></div>
+                    <div class="ep-rank"><b>EP2</b><small>global 144…215</small></div>
+                    <div class="ep-rank"><b>EP3</b><small>global 216…287</small></div>
+                  </div>
+                  <div class="formula-box">local_id = global_id - expert_start
+
+0 ≤ local_id &lt; E_local → local bucket
+otherwise                → remote bucket (-1)
+
+local expert count ≠ resident slot count
+300B example: 72 local, but cache slots ≤ 16</div>
+                </div>
+              </article>
+            </div>
+
+            <table class="truth-table">
+              <thead>
+                <tr>
+                  <th>层次</th>
+                  <th>切分对象</th>
+                  <th>每 rank / core 持有什么</th>
+                  <th>如何恢复完整结果</th>
+                  <th>Index 影响</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>TP</td>
+                  <td>单个 expert 的 intermediate I</td>
+                  <td>所有 experts 的 I/TP 权重切片</td>
+                  <td>TP all-reduce 求和 down partial</td>
+                  <td>同一 global route 在所有 TP rank 都有效</td>
+                </tr>
+                <tr>
+                  <td>EP</td>
+                  <td>Expert 集合</td>
+                  <td>部分 experts 的完整 TP-local 权重</td>
+                  <td>dispatch/combine，或当前 dev 图的 EP reduce-scatter</td>
+                  <td>global id → local id；非本地 → -1</td>
+                </tr>
+                <tr>
+                  <td>Zeus 2-core</td>
+                  <td>设备内部 I shard 或 owner expert</td>
+                  <td>16B 按 I 分；300B route-sharded 可按 expert owner 分</td>
+                  <td>本地 reduce 汇总两个 source-core partial</td>
+                  <td>公共输出仍保持第一维 source_core=2</td>
+                </tr>
+                <tr>
+                  <td>Resident cache</td>
+                  <td>当前驻留 LocalMem 的 expert 子集</td>
+                  <td>少量 active expert slots</td>
+                  <td>host 刷新/重映射 slot</td>
+                  <td>local expert id 可能再映射成 resident slot id</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <article class="parallel-card">
+              <header>
+                <h3>当前 Zeus fused dev 图的 Collective 顺序</h3>
+                <p>这是具体实现路径，不要和所有 MoE 框架的标准 all-to-all 模板混为一谈。</p>
+              </header>
+              <div class="parallel-body">
+                <div class="collective-path">
+                  <div class="collective-node"><strong>Rank-local sparse compute</strong><small>Align 只保留本地 expert；remote route 写零</small></div>
+                  <div class="collective-arrow">→</div>
+                  <div class="collective-node"><strong>TP4 all-reduce</strong><small>先恢复每个 local expert 的完整 I contribution</small></div>
+                  <div class="collective-arrow">→</div>
+                  <div class="collective-node"><strong>EP4 reduce-scatter</strong><small>汇总不同 expert owner，并切分 token 输出</small></div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-glossary" role="tabpanel" aria-labelledby="tab-glossary" data-panel="glossary">
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">One name, one responsibility</div>
+              <h2>Index 词典与排查口诀</h2>
+              <p>看到 dump 或 trace 时，先判断它属于模型语义、路由身份、执行队列还是物理 weight slot。</p>
+            </div>
+          </div>
+
+          <div class="glossary-content">
+            <table class="glossary-table">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>典型 shape / dtype</th>
+                  <th>真正含义</th>
+                  <th>谁产生 → 谁消费</th>
+                  <th>常见误区</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>topk_ids</td>
+                  <td>[T,K] · int32</td>
+                  <td>每个 token 选中的 global expert id</td>
+                  <td>Router/Top-K → Align</td>
+                  <td>不是 local expert id，也不是 weight slot</td>
+                </tr>
+                <tr>
+                  <td>topk_weights</td>
+                  <td>[T,K] · bf16</td>
+                  <td>对应 route 的归一化 mixture weight</td>
+                  <td>Router/Top-K → final reduce</td>
+                  <td>correction bias 用于选择，不应直接混进 weight</td>
+                </tr>
+                <tr>
+                  <td>flat_idx / q</td>
+                  <td>scalar integer</td>
+                  <td><code>q=t×K+slot</code>，一条 route 的永久身份</td>
+                  <td>Top-K layout → Align → GEMM → Reduce</td>
+                  <td>它不是普通 token id</td>
+                </tr>
+                <tr>
+                  <td>sorted_token_ids</td>
+                  <td>[max_padded] · fp32 ABI</td>
+                  <td>按 expert 分桶后的 flat route ids</td>
+                  <td>Align → Grouped GEMM</td>
+                  <td>名字像 token id，实际值是 route id</td>
+                </tr>
+                <tr>
+                  <td>expert_ids</td>
+                  <td>[max_blocks] · fp32 ABI</td>
+                  <td>每个 routing block 使用的 local expert/weight slot</td>
+                  <td>Align/cache remap → Grouped GEMM</td>
+                  <td>一项对应一个 block，不是一项对应一条 route</td>
+                </tr>
+                <tr>
+                  <td>block_valid_counts</td>
+                  <td>[max_blocks] · int32</td>
+                  <td>每个 block 里真实 route 的数量</td>
+                  <td>Align → strict-masked Grouped GEMM</td>
+                  <td>relaxed padding 下它才是有效 lane 的 source of truth</td>
+                </tr>
+                <tr>
+                  <td>num_tokens_post_pad</td>
+                  <td>[1] · int32</td>
+                  <td>所有 active buckets 对齐后的总 slot 数</td>
+                  <td>Align → Grouped GEMM loop bound</td>
+                  <td>不是实际 token 数，也不是实际 route 数</td>
+                </tr>
+                <tr>
+                  <td>off_expert</td>
+                  <td>scalar int32</td>
+                  <td>consumer 当前 block 的 weight-table offset</td>
+                  <td>从 expert_ids load</td>
+                  <td><code>-1</code> 是 deliberate remote-zero，不是随机坏数据</td>
+                </tr>
+                <tr>
+                  <td>a_row_ids</td>
+                  <td>[GEMM_BLOCK_M]</td>
+                  <td><code>flat_idx // top_k</code>，回到 hidden 的 token row</td>
+                  <td>Grouped GEMM 内部派生</td>
+                  <td>同一个 token 的 K 条 route 会重复读取同一 hidden row</td>
+                </tr>
+                <tr>
+                  <td>cumsum_buffer</td>
+                  <td>[num_bins+1] · fp32 ABI</td>
+                  <td>每个 bin 的 padded prefix/end</td>
+                  <td>Align workspace/兼容输出</td>
+                  <td>Grouped GEMM 主消费链不直接依赖它</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="memory-rules">
+              <div class="memory-rule"><b>1</b><span>Top-K 决定“选谁”；Align 不重新做专家选择。</span></div>
+              <div class="memory-rule"><b>2</b><span><code>flat_idx</code> 是 route 身份，<code>token=flat_idx//K</code>。</span></div>
+              <div class="memory-rule"><b>3</b><span>Align 只改执行顺序，GEMM 按 <code>flat_idx</code> 直接写回。</span></div>
+              <div class="memory-rule"><b>4</b><span>TP 切 I；EP 切 experts；双核是设备内部第三层。</span></div>
+              <div class="memory-rule"><b>5</b><span>区分 <code>E_global</code>、<code>E_local</code>、<code>resident_slots</code>。</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="source-footer">
+      <strong>内容边界：</strong>
+      本页从 Dense FFN 基础出发，并以 GLM5-Next 16B T4 文档和 torch_zeus 当前 fused MoE 实现为锚，
+      依次解释为什么使用 MoE、token/route 生命周期、计算图与索引语义，不复述性能实验。
+      300B 的 <code>E_local</code> 与 <code>resident_slots</code> 来自专门的融合设计口径；不同模型/部署配置不能混用。
+      <div class="source-list">
+        <span>/data/wangxw/518/triton_shared/docs/glm5next16b_opt/2026-08-26-moe-grouped-gemm-silu-down-t4-optimization-progress.md</span>
+        <span>/data/wangxw/518/torch_zeus/sgl-kernel-zeus-triton/docs/moe_ffn_fusion_design.md</span>
+        <span>/data/wangxw/518/torch_zeus/sgl-kernel-zeus-triton/python/sgl_kernel_zeus_triton/moe/sgl_moe_align_block_size_ep_int32.py</span>
+        <span>/data/wangxw/518/torch_zeus/sgl-kernel-zeus-triton/tests/test_moe_fusions.py</span>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var tabButtons = Array.from(document.querySelectorAll(".tab-button"));
+      var tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+
+      tabButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          var target = button.dataset.tab;
+          tabButtons.forEach(function (item) {
+            item.setAttribute("aria-selected", item === button ? "true" : "false");
+          });
+          tabPanels.forEach(function (panel) {
+            panel.classList.toggle("active", panel.dataset.panel === target);
+          });
+        });
+      });
+
+      var lessonSteps = [
+        {
+          tag: "STEP 1 · INPUT",
+          title: "先从 Dense FFN 的输入开始",
+          copy: "输入是 T 行 hidden。Dense FFN 会让每一行都经过同一套 FFN 权重；MoE 的改变发生在“选择哪套 FFN 权重”。",
+          why: "先固定 token 和 hidden 的概念，避免以后把 token id、route id、expert id 混成一种 index。",
+          output: "<code>hidden[T,H]</code>，教学例子里 T=3。"
+        },
+        {
+          tag: "STEP 2 · EXPERTS",
+          title: "准备很多套 FFN 权重",
+          copy: "E0 到 E3 的结构完全可以相同：Gate、Up、SwiGLU、Down。不同之处是它们各自拥有独立权重。",
+          why: "增加模型容量，并允许不同权重逐渐学习不同输入模式；Expert 不是新增数学算子。",
+          output: "一个 expert 权重表；概念上是 <code>Wgate[e] / Wup[e] / Wdown[e]</code>。"
+        },
+        {
+          tag: "STEP 3 · ROUTER TOP-K",
+          title: "Router 决定每个 token 选谁",
+          copy: "Router 读取每条 hidden，为所有 expert 打分，再只留下分数最高的 K 个。本例 K=2。",
+          why: "如果所有 E 个 expert 都算，就重新变成大 Dense；Top-K 让每个 token 的 active compute 保持稀疏。",
+          output: "<code>topk_ids[T,K]</code> 和 <code>topk_weights[T,K]</code>。"
+        },
+        {
+          tag: "STEP 4 · ROUTES",
+          title: "token 逻辑上展开成 K 条 route",
+          copy: "一条 route 表示“某个 token 去某个被选 expert 的一次访问”。同一 token 的 K 条 route 读取同一行 hidden，但使用不同 expert 权重。",
+          why: "后面必须分别调度、计算和记录每个 token-expert pair，所以需要比 token id 更细的身份。",
+          output: "<code>R=T×K</code> 条 route，以及永久编号 <code>q=t×K+slot</code>。"
+        },
+        {
+          tag: "STEP 5 · ALIGN / BUCKET",
+          title: "Align 把 route 按 expert 重新排队",
+          copy: "Router 的表按 token 排列，但矩阵核希望连续处理使用同一套 expert 权重的任务。Align 只改变执行顺序，不改变选择结果。",
+          why: "把同 expert route 聚在一起，才能形成规则的 Grouped GEMM block，并减少权重来回切换。",
+          output: "<code>sorted_token_ids</code>、<code>expert_ids</code>、<code>block_valid_counts</code> 和 <code>num_tokens_post_pad</code>。"
+        },
+        {
+          tag: "STEP 6 · EXPERT FFN",
+          title: "Grouped GEMM 执行真正的 Expert FFN",
+          copy: "每个 routing block 指定一个 expert。Kernel 用 q 反推出原 token 行，依次完成 Gate/Up、SwiGLU 和 Down。",
+          why: "这一步才是 MoE FFN 的主要矩阵计算；前面的 Router/Align 都是在决定它该使用哪套权重、按什么顺序算。",
+          output: "每条 route 的 <code>partial[q,H]</code>；当前双核 ABI 还带有 <code>source_core</code> 维。"
+        },
+        {
+          tag: "STEP 7 · WEIGHTED REDUCE",
+          title: "把同一 token 的 K 个专家结果加权合并",
+          copy: "按 q 找回原来的 token 和 top-k slot，乘对应 Router weight，再沿 K 维求和。当前实现的 route weight 就是在这里应用。",
+          why: "FFN 的输出仍需是一条 token 对应一行 hidden；route 只是内部稀疏执行形态，不能泄漏到下一个模型层。",
+          output: "<code>routed_out[T,H]</code>，再加所有 token 都会执行的 shared expert 输出。"
+        },
+        {
+          tag: "STEP 8 · OUTPUT",
+          title: "route 维消失，回到普通 Decoder 的 [T,H] 世界",
+          copy: "MoE FFN 内部完成 routed + shared；如果使用 TP/EP，还要汇总各 rank 的 partial。最后由 decoder block 外层加 residual。",
+          why: "无论内部路由多复杂，MoE FFN 对上下游仍表现得像普通 FFN：输入 [T,H]，输出 [T,H]。",
+          output: "<code>MoE_FFN(x)[T,H]</code>；外层得到 <code>x + MoE_FFN(x)</code>。"
+        }
+      ];
+
+      var lessonStepIndex = 0;
+      var lessonViews = Array.from(document.querySelectorAll("[data-lesson-view]"));
+      var lessonDots = Array.from(document.querySelectorAll("[data-lesson-step]"));
+      var lessonPrev = document.getElementById("lesson-prev");
+      var lessonNext = document.getElementById("lesson-next");
+
+      function renderLessonStep(index) {
+        lessonStepIndex = Math.max(0, Math.min(index, lessonSteps.length - 1));
+        var step = lessonSteps[lessonStepIndex];
+        lessonViews.forEach(function (view) {
+          view.classList.toggle("active", Number(view.dataset.lessonView) === lessonStepIndex);
+        });
+        lessonDots.forEach(function (dot) {
+          var active = Number(dot.dataset.lessonStep) === lessonStepIndex;
+          dot.classList.toggle("active", active);
+          dot.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+        document.getElementById("lesson-progress-label").textContent = "第 " + (lessonStepIndex + 1) + " / " + lessonSteps.length + " 步";
+        document.getElementById("lesson-step-tag").textContent = step.tag;
+        document.getElementById("lesson-step-title").textContent = step.title;
+        document.getElementById("lesson-step-copy").textContent = step.copy;
+        document.getElementById("lesson-step-why").textContent = step.why;
+        document.getElementById("lesson-step-output").innerHTML = step.output;
+        lessonPrev.disabled = lessonStepIndex === 0;
+        lessonNext.textContent = lessonStepIndex === lessonSteps.length - 1 ? "去算子全景 →" : "下一步 →";
+      }
+
+      lessonPrev.addEventListener("click", function () {
+        renderLessonStep(lessonStepIndex - 1);
+      });
+
+      lessonNext.addEventListener("click", function () {
+        if (lessonStepIndex === lessonSteps.length - 1) {
+          document.getElementById("tab-flow").click();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
+        renderLessonStep(lessonStepIndex + 1);
+      });
+
+      lessonDots.forEach(function (dot) {
+        dot.addEventListener("click", function () {
+          renderLessonStep(Number(dot.dataset.lessonStep));
+        });
+      });
+
+      document.querySelectorAll(".quiz-card").forEach(function (card) {
+        card.setAttribute("aria-expanded", "false");
+        card.addEventListener("click", function () {
+          var revealed = card.classList.toggle("revealed");
+          card.setAttribute("aria-expanded", revealed ? "true" : "false");
+        });
+      });
+
+      renderLessonStep(0);
+
+      var detailData = {
+        hidden: {
+          chip: "INPUT",
+          title: "hidden [T,H]",
+          copy: "MoE FFN 的共同输入；Router、Routed experts 和 Shared expert 都从这里读取。",
+          items: [
+            "16B T4 形状是 <code>[4,2048]</code>",
+            "Router 用它决定每个 token 选择哪些 expert",
+            "专家 MLP 用同一行 hidden 做 gate/up/down",
+            "外层 residual 不属于本页的本地 fused FFN 链"
+          ],
+          formula: "x_t ∈ R^H\\nRouter(x_t) → routes\\nExpert_e(x_t) → FFN contribution"
+        },
+        router: {
+          chip: "MODEL SEMANTICS",
+          title: "Router + biased Top-K",
+          copy: "这一阶段才真正决定“每个 token 选哪些专家”。Align 不参与专家选择。",
+          items: [
+            "<code>logits = hidden @ W_router.T</code>",
+            "<code>scores = sigmoid(logits)</code>；<code>scores+bias</code> 用于选择",
+            "输出 <code>topk_ids[T,K]</code> global expert ids",
+            "输出 <code>topk_weights[T,K]</code>，从 unbiased scores gather 后归一化"
+          ],
+          formula: "choice_e = sigmoid(logit_e) + bias_e\\nids = TopK(choice, K)\\nweights = normalize(gather(sigmoid(logit), ids))"
+        },
+        align: {
+          chip: "INDEX TRANSFORM",
+          title: "MoE Align Block Size",
+          copy: "把 token-major 路由表变成 expert-major 工作队列，并完成 EP global-to-local 映射。",
+          items: [
+            "先建立 <code>flat_idx=t×K+slot</code>",
+            "按 local expert stable bucket，remote 进入 <code>-1</code> bin",
+            "每个 bucket 对齐到 <code>ROUTING_BLOCK_M=64</code>",
+            "产生 <code>sorted_token_ids / expert_ids / counts / num_post_pad</code>"
+          ],
+          formula: "bucket[e].append(flat_idx)\\nblocks_e = ceil(count_e / 64)\\nnum_post_pad = 64 × Σ blocks_e"
+        },
+        routed: {
+          chip: "SPARSE EXPERT COMPUTE",
+          title: "Routed 三算子融合",
+          copy: "一个 routing block 只使用一个 expert 的权重；同 expert 的多条 route 可以共享 weight。",
+          items: [
+            "<code>token_id = flat_idx // top_k</code>",
+            "<code>gate = x @ W_gate[e]</code>，<code>up = x @ W_up[e]</code>",
+            "<code>act = SiLU(gate) × up</code>，随后执行 down projection",
+            "结果直接写到 <code>partial[core,flat_idx,:]</code>，无需额外 unsort"
+          ],
+          formula: "f_e(x) = Wdown_e · (SiLU(Wgate_e x) ⊙ Wup_e x)\\npartial[core,q,:] = local-I contribution"
+        },
+        shared: {
+          chip: "DENSE EXPERT COMPUTE",
+          title: "Shared expert 三融合",
+          copy: "Shared expert 是 MoE 里的稠密旁路：所有 token 都执行，不经过 Router 和 Align。",
+          items: [
+            "计算仍是 gate/up → SwiGLU → down",
+            "16B TP-local shared I 是 704",
+            "设备内两个 core 各自产生一份 down partial",
+            "输出 <code>shared_partial[2,T,H]</code>"
+          ],
+          formula: "shared(x_t) = Wdown_s · SwiGLU(Wgate_s x_t, Wup_s x_t)"
+        },
+        reduce: {
+          chip: "LOCAL MERGE",
+          title: "Core + Route + Shared Reduce",
+          copy: "这里才把 route weight 乘上，并把两个 source core、K 条 route 和 shared 分支合到一起。",
+          items: [
+            "先对两个 source core 的 routed partial 求和",
+            "每条 route 乘对应 <code>topk_weights[t,slot]</code>",
+            "对 top-k 轴求和，再加 shared partial",
+            "<code>routed_scaling_factor</code> 只能在 Router 或这里应用一次"
+          ],
+          formula: "y_t = scale · Σ_core Σ_slot α[t,slot] · partial[core,t,slot]\\n      + Σ_core shared_partial[core,t]"
+        },
+        collective: {
+          chip: "DISTRIBUTED MERGE",
+          title: "TP / EP Collective",
+          copy: "本地 reduce 只完成一个 device/rank 的贡献；模型并行还需要集合通信恢复全局结果。",
+          items: [
+            "TP all-reduce：求和一个 expert 不同 I shard 的 down partial",
+            "EP：汇总由不同 expert-owner rank 计算的稀疏贡献",
+            "当前 fused dev 图记录顺序为 TP AR → EP reduce-scatter",
+            "标准 MoE 框架也常采用 all-to-all dispatch/combine"
+          ],
+          formula: "local_out → TP all-reduce → EP combine/reduce-scatter"
+        },
+        residual: {
+          chip: "OUTSIDE THIS FUSED CHAIN",
+          title: "Decoder 外层 Residual",
+          copy: "本页覆盖的是 MoE_FFN(x)，不覆盖 decoder block 外层的 residual 管理。",
+          items: [
+            "本地 fused dev 公式是 <code>routed(x)+shared(x)</code>",
+            "集合通信后得到完整 FFN contribution",
+            "外层模型图再做 <code>x + MoE_FFN(x)</code>",
+            "不要把 shared add 和 residual add 混为同一个加法"
+          ],
+          formula: "block_output = residual_x + distributed_MoE_FFN(x)"
+        }
+      };
+
+      var detailCard = document.getElementById("node-detail");
+      var flowNodes = Array.from(document.querySelectorAll(".flow-node[data-detail]"));
+
+      function renderDetail(key) {
+        var data = detailData[key];
+        detailCard.innerHTML =
+          '<span class="detail-chip">' + data.chip + '</span>' +
+          '<h3>' + data.title + '</h3>' +
+          '<p>' + data.copy + '</p>' +
+          '<ul class="detail-list">' +
+          data.items.map(function (item) { return '<li>' + item + '</li>'; }).join("") +
+          '</ul>' +
+          '<div class="formula">' + data.formula + '</div>';
+        flowNodes.forEach(function (node) {
+          node.classList.toggle("active", node.dataset.detail === key);
+        });
+      }
+
+      flowNodes.forEach(function (node) {
+        node.addEventListener("click", function () {
+          renderDetail(node.dataset.detail);
+        });
+      });
+
+      var scenarios = {
+        toy: {
+          title: "教学小例子",
+          note: "无 EP；用 B=4 把 padding 和 direct scatter-back 画清楚。",
+          topk: [[2, 0], [1, 2], [2, 1], [0, 2]],
+          blockSize: 4,
+          expertStart: 0,
+          localExperts: 3,
+          mode: "no-ep"
+        },
+        ep: {
+          title: "EP global-to-local",
+          note: "当前 rank 只拥有 global expert 4…7；其他 expert 进入 remote -1 bucket。",
+          topk: [[4, 9, 6, 1], [7, 8, 3, 5], [0, 6, 11, 4]],
+          blockSize: 8,
+          expertStart: 4,
+          localExperts: 4,
+          mode: "ep"
+        },
+        sixteen: {
+          title: "16B T4 文档最优路由",
+          note: "4 个 token 命中同一组 6 experts；B=64，每块只有 4 条真实 route。",
+          topk: [
+            [58, 59, 60, 61, 62, 63],
+            [58, 59, 60, 61, 62, 63],
+            [58, 59, 60, 61, 62, 63],
+            [58, 59, 60, 61, 62, 63]
+          ],
+          blockSize: 64,
+          expertStart: 0,
+          localExperts: 64,
+          mode: "no-ep"
+        }
+      };
+
+      var selectedScenario = "toy";
+      var selectedRoute = 0;
+      var currentModel = null;
+
+      function routeColor(expert) {
+        if (expert < 0) {
+          return "#ff7e8a";
+        }
+        var hue = (expert * 67 + 174) % 360;
+        return "hsl(" + hue + " 74% 66%)";
+      }
+
+      function localExpert(globalExpert, scenario) {
+        var local = globalExpert - scenario.expertStart;
+        if (scenario.mode === "no-ep") {
+          return globalExpert;
+        }
+        return local >= 0 && local < scenario.localExperts ? local : -1;
+      }
+
+      function buildScenario(scenario) {
+        var T = scenario.topk.length;
+        var K = scenario.topk[0].length;
+        var routes = [];
+        var buckets = {};
+
+        scenario.topk.forEach(function (row, token) {
+          row.forEach(function (globalExpert, slot) {
+            var q = token * K + slot;
+            var local = localExpert(globalExpert, scenario);
+            var route = {
+              q: q,
+              token: token,
+              slot: slot,
+              globalExpert: globalExpert,
+              localExpert: local,
+              color: routeColor(local)
+            };
+            routes.push(route);
+            if (!buckets[local]) {
+              buckets[local] = [];
+            }
+            buckets[local].push(route);
+          });
+        });
+
+        var orderedExperts = Object.keys(buckets)
+          .map(Number)
+          .sort(function (a, b) { return a - b; });
+        var blocks = [];
+        var positionByRoute = {};
+
+        orderedExperts.forEach(function (expert) {
+          var bucketRoutes = buckets[expert];
+          for (var start = 0; start < bucketRoutes.length; start += scenario.blockSize) {
+            var chunk = bucketRoutes.slice(start, start + scenario.blockSize);
+            var blockIndex = blocks.length;
+            chunk.forEach(function (route, lane) {
+              positionByRoute[route.q] = { block: blockIndex, lane: lane };
+            });
+            blocks.push({
+              expert: expert,
+              routes: chunk,
+              valid: chunk.length,
+              padding: scenario.blockSize - chunk.length
+            });
+          }
+        });
+
+        return {
+          scenario: scenario,
+          T: T,
+          K: K,
+          R: T * K,
+          routes: routes,
+          buckets: buckets,
+          orderedExperts: orderedExperts,
+          blocks: blocks,
+          positionByRoute: positionByRoute,
+          numPostPad: blocks.length * scenario.blockSize
+        };
+      }
+
+      function routeChip(route, compact) {
+        var className = compact ? "tiny-route" : "route-chip";
+        var body = compact
+          ? "q" + route.q
+          : "<b>e" + route.globalExpert + "</b><small>q" + route.q + " · s" + route.slot + "</small>";
+        return '<button class="' + className + '" data-route="' + route.q + '" style="--route-color:' + route.color + '">' + body + '</button>';
+      }
+
+      function renderScenario(name) {
+        selectedScenario = name;
+        selectedRoute = 0;
+        var scenario = scenarios[name];
+        var model = buildScenario(scenario);
+        currentModel = model;
+
+        document.querySelectorAll(".scenario-button").forEach(function (button) {
+          button.classList.toggle("active", button.dataset.scenario === name);
+        });
+
+        var activeExperts = model.orderedExperts.filter(function (expert) { return expert >= 0; }).length;
+        document.getElementById("scenario-summary").innerHTML =
+          '<div class="mini-stat"><span>Scenario</span><strong>' + scenario.title + '</strong></div>' +
+          '<div class="mini-stat"><span>T × K</span><strong>' + model.T + ' × ' + model.K + '</strong></div>' +
+          '<div class="mini-stat"><span>Real routes</span><strong>R = ' + model.R + '</strong></div>' +
+          '<div class="mini-stat"><span>Active blocks</span><strong>' + model.blocks.length + '</strong></div>' +
+          '<div class="mini-stat"><span>Post-pad slots</span><strong>' + model.numPostPad + '</strong></div>';
+
+        var matrix = document.getElementById("topk-matrix");
+        matrix.style.setProperty("--columns", model.K);
+        matrix.innerHTML = scenario.topk.map(function (row, token) {
+          return '<div class="matrix-row" style="--columns:' + model.K + '">' +
+            '<span class="row-label">token ' + token + '</span>' +
+            row.map(function (_, slot) {
+              return routeChip(model.routes[token * model.K + slot], false);
+            }).join("") +
+            '</div>';
+        }).join("");
+
+        document.getElementById("flat-list").innerHTML = model.routes.map(function (route) {
+          return routeChip(route, true);
+        }).join("");
+
+        document.getElementById("bucket-grid").innerHTML = model.orderedExperts.map(function (expert) {
+          var routes = model.buckets[expert];
+          var color = routeColor(expert);
+          var expertLabel = expert === -1 ? "remote / -1" : "local expert " + expert;
+          return '<div class="bucket" style="--route-color:' + color + '">' +
+            '<div class="bucket-head"><strong>' + expertLabel + '</strong><span>count=' + routes.length + '</span></div>' +
+            '<div class="bucket-routes">' + routes.map(function (route) {
+              return routeChip(route, true);
+            }).join("") + '</div></div>';
+        }).join("");
+
+        var sortedCells = [];
+        model.blocks.forEach(function (block, blockIndex) {
+          block.routes.forEach(function (route) {
+            sortedCells.push(
+              '<button class="array-cell route-value" data-route="' + route.q + '" style="--route-color:' + route.color + '" title="block ' + blockIndex + '">q' + route.q + '</button>'
+            );
+          });
+          if (block.padding > 0) {
+            var paddingText = block.padding <= 4
+              ? Array(block.padding).fill("R").join(" ")
+              : "R × " + block.padding;
+            sortedCells.push('<span class="padding-slot" title="默认 full-sentinel ABI；relaxed path 可不写">' + paddingText + '</span>');
+          }
+        });
+
+        var expertCells = model.blocks.map(function (block) {
+          var remoteClass = block.expert === -1 ? " remote" : "";
+          return '<span class="array-cell' + remoteClass + '">e=' + block.expert + '</span>';
+        }).join("");
+        var countCells = model.blocks.map(function (block) {
+          return '<span class="array-cell">' + block.valid + '</span>';
+        }).join("");
+
+        document.getElementById("array-group").innerHTML =
+          '<div class="array-line"><span class="array-name">sorted_token_ids</span><div class="array-list">' + sortedCells.join("") + '</div></div>' +
+          '<div class="array-line"><span class="array-name">expert_ids[block]</span><div class="array-list">' + expertCells + '</div></div>' +
+          '<div class="array-line"><span class="array-name">block_valid_counts</span><div class="array-list">' + countCells + '</div></div>' +
+          '<div class="array-line"><span class="array-name">num_tokens_post_pad</span><div class="array-list"><span class="array-cell">' + model.numPostPad + '</span></div></div>';
+
+        var remoteRoutes = model.routes.filter(function (route) { return route.localExpert === -1; }).length;
+        var note = scenario.note;
+        if (remoteRoutes > 0) {
+          note += " 当前 rank 的 remote routes = " + remoteRoutes + "。";
+        } else {
+          note += " active local experts = " + activeExperts + "。";
+        }
+        document.querySelector("#panel-index .section-head p").textContent = note;
+        selectRoute(0);
+      }
+
+      function selectRoute(q) {
+        selectedRoute = q;
+        var model = currentModel;
+        var route = model.routes[q];
+        var position = model.positionByRoute[q];
+        var isRemote = route.localExpert === -1;
+
+        document.querySelectorAll("[data-route]").forEach(function (element) {
+          element.classList.toggle("highlight", Number(element.dataset.route) === q);
+        });
+
+        document.getElementById("route-trace").innerHTML =
+          '<div class="trace-step" data-step="1"><code>q=' + q + '</code> 来自 <code>token=' + route.token + ', slot=' + route.slot + '</code></div>' +
+          '<div class="trace-step" data-step="2"><code>topk_ids[' + route.token + ',' + route.slot + '] = ' + route.globalExpert + '</code>（global expert）</div>' +
+          '<div class="trace-step" data-step="3"><code>global → local = ' + route.localExpert + '</code>' + (isRemote ? "，进入 remote bucket" : "，进入本地 expert bucket") + '</div>' +
+          '<div class="trace-step" data-step="4">Align 把 q' + q + ' 放到 <code>routing block ' + position.block + ', lane ' + position.lane + '</code></div>' +
+          '<div class="trace-step" data-step="5">Grouped GEMM 反推 <code>token = q // K = ' + route.token + '</code>，读取 hidden[' + route.token + ']</div>' +
+          '<div class="trace-step" data-step="6">' + (isRemote ? "本 rank 对 <code>partial[:,q" + q + ",:]</code> 写零" : "使用 local expert " + route.localExpert + " 计算并写回 <code>partial[:,q" + q + ",:]</code>") + '</div>' +
+          '<div class="trace-step" data-step="7">最终 Reduce 使用原位置 <code>topk_weights[' + route.token + ',' + route.slot + ']</code></div>';
+
+        document.getElementById("trace-result").innerHTML =
+          "执行顺序变成 expert-major，结果地址仍是 q" + q +
+          "；因此输出天然恢复为 [T,K,H]，无需额外 unsort。" +
+          (isRemote ? "<br>remote 的真实贡献由其他 EP owner rank 产生。" : "");
+      }
+
+      document.querySelectorAll(".scenario-button").forEach(function (button) {
+        button.addEventListener("click", function () {
+          renderScenario(button.dataset.scenario);
+        });
+      });
+
+      document.getElementById("panel-index").addEventListener("click", function (event) {
+        var target = event.target.closest("[data-route]");
+        if (target) {
+          selectRoute(Number(target.dataset.route));
+        }
+      });
+
+      renderScenario("toy");
+    }());
+  </script>
+</body>
+</html>

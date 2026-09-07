@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merged UScale 放置契约</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F2F5F6;
+    --surface: #FFFFFF;
+    --surface-2: #E8EDEF;
+    --line: #CFD9DD;
+    --ink: #101619;
+    --ink-2: #46565D;
+    --muted: #6B7C84;
+    --weight: #0E6A87;
+    --weight-bg: #D6E9F0;
+    --scale: #9A6E14;
+    --scale-bg: #F7EBCF;
+    --origin: #6A4C93;
+    --origin-bg: #E7E0F2;
+    --good: #1F6B4C;
+    --good-bg: #D4EADD;
+    --risk: #A8442A;
+    --risk-bg: #F3DAD1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0D1316; --surface:#151E22; --surface-2:#1D282D; --line:#2C3B42;
+      --ink:#E8F0F3; --ink-2:#A9BCC4; --muted:#7E939C;
+      --weight:#58BEDC; --weight-bg:#113039; --scale:#E0B45C; --scale-bg:#3A2E14;
+      --origin:#B49BE0; --origin-bg:#2A2140; --good:#63C795; --good-bg:#12331F;
+      --risk:#EC8760; --risk-bg:#402016;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 46px 26px 76px;
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+  }
+
+  .eyebrow {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0 0 14px;
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 600;
+    letter-spacing: -.025em;
+    line-height: 1.14;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 72ch;
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 17px;
+  }
+
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  h2 {
+    margin: 0 0 17px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .panel {
+    padding: 21px 22px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  .contract {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 15px;
+    align-items: start;
+    border-left: 4px solid var(--good);
+  }
+
+  .contract-mark {
+    display: grid;
+    width: 31px;
+    height: 31px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--good-bg);
+    color: var(--good);
+    font-weight: 700;
+  }
+
+  .contract p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .contract b { color: var(--ink); font-weight: 600; }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  @media (max-width: 860px) {
+    .compare { grid-template-columns: 1fr; }
+  }
+
+  .case {
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  .case.good { border-top: 4px solid var(--good); }
+  .case.risk { border-top: 4px solid var(--risk); }
+
+  .case-head {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 17px;
+  }
+
+  .case-title { margin: 0; font-size: 17px; font-weight: 600; }
+  .case-sub { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+
+  .tag {
+    flex: none;
+    padding: 4px 8px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .tag.good { border-color: var(--good); background: var(--good-bg); color: var(--good); }
+  .tag.risk { border-color: var(--risk); background: var(--risk-bg); color: var(--risk); }
+
+  .dram {
+    padding: 15px;
+    border: 1px dashed var(--line);
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .dram-label {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .combined-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .combined {
+    display: grid;
+    grid-template-columns: minmax(130px, 4fr) minmax(68px, 1fr);
+    min-height: 50px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  .mem {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .mem.weight { background: var(--weight-bg); color: var(--weight); }
+  .mem.scale { border-left: 1px solid var(--scale); background: var(--scale-bg); color: var(--scale); }
+  .mem.origin { background: var(--origin-bg); color: var(--origin); }
+
+  .near {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 12px 1px 0;
+    color: var(--good);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .near::before { content: ""; width: 36px; border-top: 2px solid var(--good); }
+
+  .separated { display: flex; flex-direction: column; gap: 11px; }
+  .separated-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .separated-row .mem { min-height: 48px; border: 1px solid; border-radius: 3px; }
+  .separated-row .weight { border-color: var(--weight); }
+  .separated-row .scale { border-color: var(--scale); }
+
+  .distance {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--risk);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+  }
+
+  .distance::before,
+  .distance::after { content: ""; flex: 1; border-top: 1px dashed var(--risk); }
+
+  .case-note { margin: 15px 0 0; color: var(--ink-2); font-size: 13.5px; }
+  .case-note b { color: var(--ink); font-weight: 600; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 13px; height: 13px; border: 1px solid; border-radius: 2px; }
+
+  .update-board {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .update-head,
+  .update-row {
+    display: grid;
+    grid-template-columns: minmax(150px, .9fr) minmax(150px, .72fr) minmax(260px, 1.45fr);
+    gap: 13px;
+    align-items: stretch;
+  }
+
+  .update-head div {
+    padding: 0 12px 7px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .origin-block,
+  .act-block {
+    display: flex;
+    min-height: 60px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 12px;
+    border: 1px solid;
+    border-radius: 3px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .origin-block { border-color: var(--origin); background: var(--origin-bg); color: var(--origin); }
+
+  .act-block {
+    position: relative;
+    border-color: var(--weight);
+    background: var(--weight-bg);
+    color: var(--weight);
+  }
+
+  .act-block::before {
+    content: "×";
+    position: absolute;
+    left: -22px;
+    top: 50%;
+    color: var(--muted);
+    font-size: 20px;
+    transform: translateY(-50%);
+  }
+
+  .act-block::after {
+    display: none;
+  }
+
+  .target-combined {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(125px, 3fr) minmax(90px, 1.15fr);
+    min-height: 60px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  .target-combined::before {
+    content: "";
+    position: absolute;
+    left: -13px;
+    top: 8px;
+    z-index: 3;
+    width: calc(72% + 7px);
+    border-top: 2px solid var(--good);
+  }
+
+  .target-combined::after {
+    content: "▶";
+    position: absolute;
+    left: calc(72% - 7px);
+    top: -2px;
+    z-index: 3;
+    color: var(--good);
+    font-size: 15px;
+  }
+
+  .target-combined .mem.scale {
+    outline: 2px solid var(--good);
+    outline-offset: -2px;
+    background: var(--good-bg);
+    color: var(--good);
+  }
+
+  .update-note {
+    margin: 15px 0 0;
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+
+  .update-note b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 760px) {
+    .update-head { display: none; }
+    .update-row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: var(--surface-2);
+    }
+    .act-block::before {
+      content: "×";
+      left: 50%;
+      top: -19px;
+      transform: translateX(-50%);
+    }
+    .act-block::after {
+      display: block;
+      content: "▼";
+      left: 50%;
+      right: auto;
+      top: auto;
+      bottom: -22px;
+      transform: translateX(-50%);
+    }
+  }
+
+  code {
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .91em;
+  }
+
+  .formula {
+    margin: 17px 0 0;
+    padding: 13px 15px;
+    border-left: 3px solid var(--scale);
+    background: var(--scale-bg);
+    color: var(--ink-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+  }
+
+  .scope {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  .scope-row {
+    display: grid;
+    grid-template-columns: 150px 1fr 1fr;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .scope-row:last-child { border-bottom: none; }
+  .scope-row > div { padding: 13px 15px; }
+  .scope-row > div + div { border-left: 1px solid var(--line); }
+  .scope-head { background: var(--surface-2); font-size: 12px; font-weight: 600; }
+  .scope-key { background: var(--surface-2); color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .scope-value { background: var(--surface); color: var(--ink-2); font-size: 13px; }
+  .scope-value b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 680px) {
+    .scope-head { display: none; }
+    .scope-row { grid-template-columns: 1fr; }
+    .scope-row > div { padding: 11px 12px; font-size: 12px; }
+    .scope-row > div + div { border-top: 1px dashed var(--line); border-left: none; }
+    .scope-value:nth-child(2)::before,
+    .scope-value:nth-child(3)::before {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .scope-value:nth-child(2)::before { content: "我们当前希望先适配"; }
+    .scope-value:nth-child(3)::before { content: "独立 UScale 通用能力"; }
+  }
+
+  .boundary {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: start;
+    border-left: 4px solid var(--risk);
+  }
+
+  .boundary-mark {
+    color: var(--risk);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .boundary p { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+  .boundary b { color: var(--ink); font-weight: 600; }
+
+  .ask {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--line);
+  }
+
+  @media (max-width: 760px) { .ask { grid-template-columns: 1fr; } }
+
+  .ask-item { padding: 17px 18px; background: var(--surface); }
+  .ask-n { margin: 0 0 7px; color: var(--good); font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; }
+  .ask-t { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+  .ask-d { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+
+  .foot {
+    margin: -9px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .foot a { color: inherit; }
+
+  @media print {
+    body { background: #fff; }
+    .wrap { max-width: none; padding: 24px; gap: 24px; }
+    .case, .panel, .scope, .ask { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Zeus V3 · WUS · Issue #191 scope alignment</p>
+    <h1>Merged UScale 不是一块可以任意摆放的 scratch</h1>
+    <p class="lede">硬件确实允许 Weight 与 UScale 使用不同地址，但我们的第一阶段目标不是开放“任意 USaddr”。我们希望保留 <b>每个 BLOCK_K weight block 与自己的 merged UScale 紧邻</b> 的布局，让 PE 在近存计算的关键路径上尽量连续取数。</p>
+  </header>
+
+  <section class="panel contract">
+    <span class="contract-mark">✓</span>
+    <p><b>希望先对齐的契约：</b>weight 按 block 划分，每个 <code>BLOCK_N × BLOCK_K</code> weight block 后面紧跟同编号的 merged UScale。另一份只读 original weight UScale 可以独立连续存放，因为它只参与更新，不在 PE MAC 的直接取数关键路径上。</p>
+  </section>
+
+  <section>
+    <h2>核心分歧不是“硬件能不能”，而是“编译器承诺什么布局”</h2>
+    <div class="compare">
+      <article class="case good">
+        <div class="case-head">
+          <div>
+            <p class="case-title">我们当前希望适配的布局</p>
+            <p class="case-sub">固定相对位置 · 每个 block 是一个 combined unit</p>
+          </div>
+          <span class="tag good">优先目标</span>
+        </div>
+
+        <div class="dram">
+          <p class="dram-label">Weight LDG · PE critical path</p>
+          <div class="combined-list">
+            <div class="combined">
+              <div class="mem weight">block 0 weight</div>
+              <div class="mem scale">merged UScale<br>block 0</div>
+            </div>
+            <div class="combined">
+              <div class="mem weight">block 1 weight</div>
+              <div class="mem scale">merged UScale<br>block 1</div>
+            </div>
+            <div class="combined">
+              <div class="mem weight">block 2 weight</div>
+              <div class="mem scale">merged UScale<br>block 2</div>
+            </div>
+          </div>
+          <div class="near">Weight 与自己的 UScale 紧邻</div>
+        </div>
+
+        <p class="case-note">PE 看到的仍然是现有 WUS combined layout。<b><code>USaddr = block_base + weight_bytes</code></b>，不需要为第一阶段引入任意位置的 scale binding。</p>
+      </article>
+
+      <article class="case risk">
+        <div class="case-head">
+          <div>
+            <p class="case-title">Issue #191 通用解法自然允许的布局</p>
+            <p class="case-sub">独立 temporary UScale base · placement 未受约束</p>
+          </div>
+          <span class="tag risk">范围更大</span>
+        </div>
+
+        <div class="dram">
+          <p class="dram-label">Weight LDG / separate scale arena</p>
+          <div class="separated">
+            <div class="separated-row">
+              <div class="mem weight">block 0<br>weight</div>
+              <div class="mem weight">block 1<br>weight</div>
+              <div class="mem weight">block 2<br>weight</div>
+            </div>
+            <div class="distance">地址可相距很远 · 可能跨 row / cache locality</div>
+            <div class="separated-row">
+              <div class="mem scale">merged UScale<br>block 0</div>
+              <div class="mem scale">merged UScale<br>block 1</div>
+              <div class="mem scale">merged UScale<br>block 2</div>
+            </div>
+          </div>
+        </div>
+
+        <p class="case-note">功能上可以通过显式 <code>USaddr</code> 工作，但 ABI 一旦只表达“任意 scale pointer”，就没有保留邻接性的契约。对 PE 近存取数而言，<b>这可能引入额外 row/cache miss，并把等待暴露到 MAC 关键路径</b>。</p>
+      </article>
+    </div>
+
+    <div class="legend">
+      <span class="legend-item"><span class="swatch" style="background:var(--weight-bg);border-color:var(--weight)"></span>FP8 BLOCK_K weight block</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--scale-bg);border-color:var(--scale)"></span>当前 invocation 使用的 merged UScale</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--origin-bg);border-color:var(--origin)"></span>只读 original weight scale</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>我们要做的运行时更新：只改每个 block 后面的 scale</h2>
+    <div class="update-board">
+      <div class="update-head">
+        <div>origin_uscale_readonly</div>
+        <div>本次 activation</div>
+        <div>packed_weight_inout · 箭头落到 merged scale</div>
+      </div>
+      <div class="update-row">
+        <div class="origin-block">original weight UScale<br>block 0</div>
+        <div class="act-block">act scale<br>block 0</div>
+        <div class="target-combined">
+          <div class="mem weight">block 0 weight<br><small>保持不变</small></div>
+          <div class="mem scale">merged UScale<br>block 0</div>
+        </div>
+      </div>
+      <div class="update-row">
+        <div class="origin-block">original weight UScale<br>block 1</div>
+        <div class="act-block">act scale<br>block 1</div>
+        <div class="target-combined">
+          <div class="mem weight">block 1 weight<br><small>保持不变</small></div>
+          <div class="mem scale">merged UScale<br>block 1</div>
+        </div>
+      </div>
+      <div class="update-row">
+        <div class="origin-block">original weight UScale<br>block 2</div>
+        <div class="act-block">act scale<br>block 2</div>
+        <div class="target-combined">
+          <div class="mem weight">block 2 weight<br><small>保持不变</small></div>
+          <div class="mem scale">merged UScale<br>block 2</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="update-note">每一行都只更新同编号 block 的 scale 槽：<b>original weight UScale × 本 block 的 act scale → 本 block 的 merged UScale</b>；左侧 weight 区域不写。</p>
+    <div class="formula">merged_uscale_block_i = BF16(FP32(original_weight_uscale_block_i) × act_scale_block_i)</div>
+  </section>
+
+  <section>
+    <h2>为什么它和 Issue 的“独立 temporary UScale”不是同一个改动范围</h2>
+    <div class="scope">
+      <div class="scope-row scope-head">
+        <div>比较项</div>
+        <div>我们当前希望先适配</div>
+        <div>独立 UScale 通用能力</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">Scale placement</div>
+        <div class="scope-value"><b>固定邻接</b>在对应 weight block 后</div>
+        <div class="scope-value">独立 base，理论上可放任意合法 LDG 地址</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">PE 地址</div>
+        <div class="scope-value">沿用当前 adjacent-USaddr 推导</div>
+        <div class="scope-value">需要显式 UScale pointer →动态 USaddr</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">Triton GEMM</div>
+        <div class="scope-value"><code>tl.load(weight, ugroup)</code> + <code>tl.dot</code> 不变</div>
+        <div class="scope-value">需要额外 scale binding/provenance</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">Dependency</div>
+        <div class="scope-value">写入与 PE 读取属于<b>同一 weight slab</b></div>
+        <div class="scope-value">PE 同时读取 weight slab 与独立 UScale slab</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">当前核心工作</div>
+        <div class="scope-value">计算 merged scale，并 raw store 回邻接位置</div>
+        <div class="scope-value">新增通用 ABI、地址、资源与生命周期支持</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel boundary">
+    <span class="boundary-mark">!</span>
+    <p><b>这里表达的是必须先保留的性能契约，不是已经完成的性能定量结论。</b>Zeus PE 直连 Weight LDG，weight 与 UScale 的距离会影响 DRAM row/cache locality；“任意摆放”的实际退化幅度仍需要同一 kernel、同一 dynamic 的 VCS A/B 验证。在完成这项验证前，不应把任意 USaddr 当成没有性能代价的等价布局。</p>
+  </section>
+
+  <section>
+    <h2>希望先和 Issue owner 对齐的三件事</h2>
+    <div class="ask">
+      <div class="ask-item">
+        <p class="ask-n">01 · BLOCK</p>
+        <p class="ask-t">weight 按 BLOCK_K 划分</p>
+        <p class="ask-d">每个 block 是一块 weight，并和同编号的 merged UScale 组成 combined unit。</p>
+      </div>
+      <div class="ask-item">
+        <p class="ask-n">02 · PLACEMENT</p>
+        <p class="ask-t">merged scale 固定紧跟 weight</p>
+        <p class="ask-d">original scale 可以独立连续放置，merged scale 不接受任意 placement。</p>
+      </div>
+      <div class="ask-item">
+        <p class="ask-n">03 · OWNERSHIP</p>
+        <p class="ask-t">buffer ownership 由调用方负责</p>
+        <p class="ask-d">双缓冲、并发 slot 与 graph 生命周期属于 torch_zeus/operator 层契约。</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">相关讨论：<a href="http://172.16.116.216:30000/compilergroup/triton_shared/issues/191">triton_shared issue #191</a> · 本页只用于范围对齐，不代表实现已经完成或性能已经验收。</p>
+</main>
+
+</body>
+</html>
