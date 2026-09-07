@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEMM 分块策略笔记</title>
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; line-height: 1.6; }
+  h1 { font-size: 1.5rem; }
+  code { background: #eee; padding: 2px 5px; }
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; }
+</style>
+<style>
+  html { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>GEMM 分块策略笔记</h1>
+<p>记录 minitile 搜索的三个约束条件。</p>
+<table>
+  <tr><th>参数</th><th>取值</th><th>约束来源</th></tr>
+  <tr><td><code>mtw</code></td><td>≤ 16</td><td>硬件上界</td></tr>
+  <tr><td><code>mtk</code></td><td>2 的幂</td><td>BReg 编码</td></tr>
+  <tr><td><code>mtc</code></td><td>≤ 64</td><td>L2 容量</td></tr>
+</table>
+<p>结论：驻留分段下 k 惩罚显著，N_TC=1 时有切换税。</p>
+</body>
+</html>
