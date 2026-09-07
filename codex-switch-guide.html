@@ -227,7 +227,7 @@
       本文覆盖部署、日常用法、脚本架构，以及你要改它时该动哪里。
     </p>
     <div class="meta">
-      <span><b>脚本</b> codex-switch · bash · 976 行</span>
+      <span><b>脚本</b> codex-switch · bash · 1052 行</span>
       <span><b>实测</b> codex-cli 0.149.1 / 0.153.4</span>
       <span><b>平台</b> Linux · 单机单用户</span>
     </div>
@@ -338,8 +338,8 @@ cli_auth_credentials_store = "file"
         </p>
         <div class="cmd"><span class="p">$</span> codex-switch add 2 --device-auth</div>
         <p>
-          如果报「检测到 N 个运行中的 Codex 进程」，见下面第 05 节 —— 要么关掉它们，要么加 <code>--force-running</code>
-          并理解其中的取舍。
+          如果此时有 Codex 在跑，脚本会在切换完成后自动终止它们（它们持的是旧账号凭据），
+          不需要你手动关。原因见第 05 节。
         </p>
       </li>
 
@@ -365,16 +365,17 @@ cli_auth_credentials_store = "file"
           <tr><td><code>codex-switch status</code></td><td>槽位一致性 + <code>codex login status</code> + 额度表</td></tr>
           <tr><td><code>codex-switch add N</code></td><td>登录新账号存进槽位 N 并切过去</td></tr>
           <tr><td><code>codex-switch adopt N</code></td><td>把当前 <code>auth.json</code> 登记为槽位 N（不触发登录）</td></tr>
-          <tr><td><code>--force-running</code></td><td>检测到运行中的 Codex 时仍强行切换</td></tr>
+          <tr><td><code>--keep-running</code></td><td>切换后<b>不</b>终止旧进程（它们会继续用旧账号，有覆盖风险）</td></tr>
           <tr><td><code>--no-color</code></td><td>禁用彩色（管道输出时自动禁用，无需手动加）</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="note">
-      <b>切换后已运行的进程不会跟着变</b>
-      Codex 只在进程启动时加载一次认证，协议层没有凭据热重载接口。新开的终端立刻是新账号；
-      已经开着的 VS Code 窗口要 <code>Ctrl+Shift+P</code> → Developer: Reload Window。
+      <b>切换后 VS Code 仍需 Reload Window</b>
+      Codex 只在进程启动时加载一次认证，协议层没有凭据热重载接口。脚本会自动终止持旧凭据的进程，
+      但 VS Code 插件不会自己重连 —— 需要 <code>Ctrl+Shift+P</code> → Developer: Reload Window
+      （实测：kill 掉 app-server 后插件不会自动重拉，要一次交互才会）。新开的终端则立刻是新账号。
     </div>
   </section>
 
@@ -429,9 +430,9 @@ cli_auth_credentials_store = "file"
             <td>切换中途被 kill，状态卡在中间</td>
           </tr>
           <tr>
-            <td>运行守卫</td>
-            <td><code>ps -u $(id -u)</code> 数自己的进程</td>
-            <td>旧进程把旧凭据刷回来（见 05 节）</td>
+            <td>旧进程清理</td>
+            <td>按启动时刻识别 + SIGTERM + 复查指纹</td>
+            <td>旧进程继续用旧账号、并把旧凭据刷回来（见 05 节）</td>
           </tr>
         </tbody>
       </table>
@@ -475,15 +476,31 @@ cli_auth_credentials_store = "file"
       指纹校验确认还是同一个账号 → 写回槽位。<strong>如果你要加任何「拿槽位凭据去做事」的功能，必须照抄这套写回逻辑。</strong>
     </p>
 
-    <h3>运行中的进程会改写 auth.json</h3>
-    <p>实测到的时间线，进程启动 5 分钟后主动刷新了凭据 —— 当时旧 token 还有 4 天才过期：</p>
-    <div class="term"><span class="dim">11:03:43</span>  codex app-server 启动
-<span class="dim">11:09:00</span>  auth.json 被写入，token 换成新签发的</div>
+    <h3>旧进程既读不到新账号，还可能写回旧凭据</h3>
     <p>
-      所以切换后如果旧进程还活着，它可能在任意时刻用<strong>旧账号的 refresh_token</strong> 换新 token 并写回
-      <code>auth.json</code>，造成两件事：你切的新账号被静默覆盖；旧账号的槽位快照因 token 被轮换而失效。
-      这就是运行守卫默认拦截的原因，<code>--force-running</code> 是在明确承担这个风险。
+      Codex 只在<strong>进程启动时</strong>加载一次认证。切换 <code>auth.json</code> 对已经在跑的进程毫无影响 ——
+      它会一直用启动那一刻的账号，直到重启为止。
     </p>
+    <p>这是真实发生过的一次事故，时间线完整对得上：</p>
+    <div class="term"><span class="dim">09-01 11:28</span>  app-server 启动，加载账号 A 的凭据
+<span class="dim">09-07 11:09</span>  auth.json 切换成账号 B（还剩 99% 额度）
+<span class="dim">09-07 12:08</span>  VS Code 里的 Codex 报错：<span class="lo">"已达到使用上限，13:32 再试"</span>
+              <span class="dim">而账号 A 的额度重置时刻正好是</span> <span class="lo">13:32:48</span>
+
+<span class="hd">→ 那个跑了 6 天没重启的 app-server 全程用的是账号 A，</span>
+<span class="hd">  切换到账号 B 完全没作用到它身上。</span></div>
+    <p>
+      更隐蔽的是第二重风险：旧进程可能在任意时刻用<strong>旧账号的 refresh_token</strong> 换新 token 并写回
+      <code>auth.json</code> —— 你切的新账号被静默覆盖，同时旧账号的槽位快照因 token 被轮换而失效。
+      实测过一次进程启动 5 分钟后就主动刷新凭据的情况，当时旧 token 明明还有 4 天才过期，
+      <strong>刷新时机完全不可预测</strong>。
+    </p>
+    <div class="note">
+      <b>脚本现在会自动处理</b>
+      切换完成后自动终止「启动时刻早于 <code>auth.json</code> 写入时刻」的 Codex 进程 —— 这个判据精确地
+      对应「持旧凭据」，切换后才启动的进程不会被误伤。终止后还会复查一次指纹，确认没有旧进程
+      抢在中间把凭据写回。风险窗口从「无限期」压到几百毫秒。
+    </div>
 
     <h3>进程检测只看自己</h3>
     <p>
@@ -573,11 +590,22 @@ USAGE_DIR="$STORE_DIR/usage"
       在重试时必须复用同一个值，否则会连消费两张。
     </div>
 
-    <h3>调整运行守卫</h3>
+    <h3>调整进程处理策略</h3>
     <p>
-      嫌每次都要 <code>--force-running</code> 太烦，可以改 <code>guard_running_clients()</code>。
-      但先读完 05 节第二条 —— 单纯把默认反转等于把那个坑设成默认。更稳的做法是切换后主动终止持有旧凭据的进程，
-      把风险窗口从「无限期」压到几百毫秒。
+      切换后自动终止旧进程这套逻辑在 <code>stale_codex_pids()</code> 和
+      <code>restart_stale_clients()</code> 两个函数里。识别判据是
+      <strong>进程启动时刻 &lt; <code>auth.json</code> 写入时刻</strong>，用
+      <code>ps -o etimes=</code> 拿运行秒数换算，比解析 <code>lstart</code> 的日期字符串稳。
+    </p>
+    <p>
+      进程名用 <code>comm</code> 精确匹配 <code>codex</code> 和 <code>codex-code-mode*</code>，
+      <strong>不要改成匹配 <code>args</code></strong> —— 那样会把 <code>codex-switch</code> 自身和
+      检查命令一起算进去，脚本会杀掉自己（这个坑踩过）。<code>ps -u $(id -u)</code> 限定只看当前用户，
+      共享机器上不会误伤别人的 Codex。
+    </p>
+    <p>
+      想保留旧进程用 <code>--keep-running</code>，但要清楚代价：那些进程继续用旧账号，
+      并且可能把旧凭据写回。
     </p>
 
     <h3>不要动的部分</h3>
@@ -595,7 +623,7 @@ USAGE_DIR="$STORE_DIR/usage"
       <table>
         <tbody>
           <tr><td>作用范围</td><td>同一台机器、同一个 Unix 用户、默认 <code>~/.codex</code>。另一台机器 / WSL / Dev Container / 别的用户各有各的，要分别部署</td></tr>
-          <tr><td>热切换</td><td>不支持。已运行的 Codex 必须重启才会读到新身份</td></tr>
+          <tr><td>热切换</td><td>协议层不支持。脚本用「终止旧进程」来逼近：CLI 下次启动即新账号，VS Code 需 Reload Window</td></tr>
           <tr><td>登录方式</td><td>ChatGPT 登录和 API key 都能存槽位；<code>--with-access-token</code> 那种没有 refresh 能力的形式被显式拒绝</td></tr>
           <tr><td>额度数据</td><td>来自服务端实时接口，非活跃槽位显示的是缓存值，带时间戳标注</td></tr>
         </tbody>
