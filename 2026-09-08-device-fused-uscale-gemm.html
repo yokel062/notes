@@ -790,7 +790,18 @@
   .rule-list li b { display: block; margin-bottom: 2px; }
 
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0 4px; }
-  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } .flow-row { grid-template-columns: 1fr; } .page-map { grid-template-columns: 60px 1fr 1fr 70px; } }
+  .page-map.pm-multi { grid-template-columns: 74px repeat(2, 1fr); }
+  .page-map .pm-page {
+    background: var(--accent-bg, var(--surface-2));
+    border: 1px solid var(--accent, var(--line));
+    border-radius: 6px;
+    padding: 7px 6px;
+    color: var(--accent, var(--ink-2));
+    font-weight: 600;
+    text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } .flow-row { grid-template-columns: 1fr; } .page-map { grid-template-columns: 60px 1fr 1fr 70px; } .page-map.pm-multi { grid-template-columns: 60px 1fr 1fr; } }
   .col-card {
     background: var(--surface);
     border: 1px solid var(--line);
@@ -924,7 +935,7 @@
       </div>
       <div class="flow-row">
         <div class="flow-tag">WUS 页</div>
-        <div class="flow-body">一个物理页 = <b>8 个 WL1 lane × 每 lane 1024 个 BF16 = 16 KiB</b>。8 和 1024 都是硬件固定值。一个 weight block 的 scale 如果放不下一页，<code>forward_transform_uscale</code> 会自动续到下一页（32 KiB、48 KiB…），<b>硬件本身支持多页</b>；只是当前参考 kernel 还只实现了单页视图，见第三节。</div>
+        <div class="flow-body">一个物理页 = <b>8 个 WL1 lane × 每 lane 1024 个 BF16 = 16 KiB</b>，可装 8192 个系数。8 和 1024 都是硬件固定值。一个 weight block 配一个 <b>UScale block</b>；装不下一页时就占<b>连续多页</b>（32 KiB、48 KiB…），页数记作 <code>S</code>。硬件、<code>forward_transform_uscale</code>、两套 simulator 与生产 host 打包器一直都按 <code>S</code> 页处理，<b>参考 kernel 现在也已支持任意 S</b>，见第三节。</div>
       </div>
       <div class="flow-row">
         <div class="flow-tag">位置<br>自由度</div>
@@ -991,10 +1002,93 @@
 
     <p class="lede">每个格子里是 <b>16 个连续输出通道</b>。同一个 <code>kg</code> 内，<code>g0 … g7</code> 覆盖的是<b>同一批通道的不同 K quant group</b>；相邻 lane 相差 16 个通道；相邻 <code>kg</code> 相差 128 个通道。</p>
 
-    <p class="lede">页容量 8 × 1024 = 8192 个 BF16 是硬件固定的。本例逻辑有效数据是 <code>BLOCK_N × G = 2048</code> 个，占页面 1/4，其余是页内 padding —— <b>kernel 不写 padding</b>，它保留调用方传入的原值。</p>
+    <p class="lede">页容量 8 × 1024 = 8192 个 BF16 是硬件固定的。上图这个配置逻辑有效数据是 <code>BLOCK_N × G = 2048</code> 个，占页面 1/4，其余是页内 padding —— <b>kernel 不写 padding</b>，它保留调用方传入的原值。装不下一页时会怎样，见下面的多页小节。</p>
+
+    <h3>UScale block 与页：什么时候需要多页</h3>
+
+    <p class="lede">先把三层关系摆清楚，这是理解页数的基础：</p>
+
+    <div class="flow">
+      <div class="flow-row">
+        <div class="flow-tag">weight<br>block</div>
+        <div class="flow-body"><code>BLOCK_N × BLOCK_K</code> 个 FP8 权重。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">UScale<br>block</div>
+        <div class="flow-body">与 weight block <b>一一配对</b>，含 <code>BLOCK_N × G</code> 个 BF16 系数。weight 沿 K 每 <code>UGROUP</code> 个元素共用一个系数，而系数按输出通道 <code>n</code> 索引（weight 量化本来就是 per-channel），所以即使 act scale 沿 <code>n</code> 是常数，也要铺满这 <code>BLOCK_N</code> 行。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">物理页</div>
+        <div class="flow-body">硬件读取的最小单位，<b>8 lane × 1024 BF16 = 8192 个系数 = 16 KiB</b>。起始地址也必须 16 KiB 对齐，所以既不存在更小的粒度，也只能按整页递增。</div>
+      </div>
+    </div>
+
+    <p class="formula">S = ⌈ BLOCK_N × G / 8192 ⌉</p>
+
+    <div class="scope">
+      <div class="scope-row scope-head"><div>条件</div><div>页数 S</div><div>UScale block 大小</div></div>
+      <div class="scope-row"><div class="scope-key">BLOCK_N × G ≤ 8192</div><div>1</div><div class="scope-value">16 KiB</div></div>
+      <div class="scope-row"><div class="scope-key">≤ 16384</div><div>2</div><div class="scope-value">32 KiB</div></div>
+      <div class="scope-row"><div class="scope-key">≤ 24576</div><div>3</div><div class="scope-value">48 KiB</div></div>
+    </div>
+
+    <p class="lede">换算成 weight 规模更直观：<b>需要多页 ⟺ <code>BLOCK_N × BLOCK_K &gt; 8192 × UGROUP</code></b>。<code>UGROUP=128</code> 时即单个 weight block 超过 1 M 个元素（FP8 权重 1 MiB）。实践中触发多页的典型场景有两类：<b>细粒度量化</b>（<code>UGROUP=32/64</code> 把门槛降到 256 K / 512 K）和<b>大 BLOCK_N × 大 BLOCK_K 的驻留式分块</b>。</p>
 
     <div class="callout ok">
-      <b>当前参考 kernel 只覆盖单页的情况：</b><code>(BLOCK_N/128) × G × 16 ≤ 1024</code>，等价于 <b><code>BLOCK_N × G ≤ 8192</code></b>。超过这个界时，<code>forward_transform_uscale</code> 会把一个 block 的 scale 续写到第二、第三个 16 KiB 页（32 KiB、48 KiB…）。<b>这不是硬件上限，多页在硬件和 layout 变换上都是支持的</b> —— 只是参考 kernel 目前按单页写死了页内视图。<b>扩展到多页即将支持</b>，改动集中在 kernel 里的几个页相关常量（页数、页 stride、写回时的页循环），ABI 和上面的编址公式都不变。需要更大 <code>BLOCK_N × G</code> 时请先联系编译器团队。
+      <b>多页已经完整支持</b>（硬件、layout 变换、两套 simulator、生产 host 打包器一直都支持；参考 kernel 与 golden 也已跟上）。页数由 constexpr <code>USCALE_PAGES</code> 显式声明，kernel 内用 <code>static_assert</code> 校验它等于上面的公式 —— 填错在<b>编译期</b>就报错，不会静默算错。ABI 与本节的编址公式都不变。
+    </div>
+
+    <h3>多页时的排布（BLOCK_N=512, BLOCK_K=4096, UGROUP=128 → G=32, S=2）</h3>
+
+    <p class="lede">页内偏移公式加一层页号即可，其余完全不变：</p>
+
+    <p class="formula">全局偏移(page, lane, kg, g, row) = page·8192 + lane·1024 + (kg mod KG_PER_PAGE)·(G·16) + g·16 + row</p>
+    <p class="formula">page = kg div KG_PER_PAGE，　KG_PER_PAGE = 64 / G</p>
+
+    <p class="lede">本例 <code>G=32</code>，每个 <code>kg</code> 占 <code>G×16 = 512</code> 个 BF16，所以一页（每 lane 1024）正好装 <b>2 个 kg</b>，4 个 kg 分成 2 页。<b>页与页在 DRAM 里连续排列</b>，共 32 KiB。</p>
+
+    <div class="page-map pm-multi">
+      <div class="pm-h"></div>
+      <div class="pm-h">左半 · 512 个 BF16<br><span style="font-weight:400">g0 … g31，每格 16 通道</span></div>
+      <div class="pm-h">右半 · 512 个 BF16<br><span style="font-weight:400">g0 … g31，每格 16 通道</span></div>
+
+      <div class="pm-page">页 0<br><span style="font-weight:400">kg=0,1</span></div>
+      <div class="pm-h" style="text-align:center">kg = 0</div>
+      <div class="pm-h" style="text-align:center">kg = 1</div>
+
+      <div class="pm-lane">lane 0</div>
+      <div class="pm-cell pm-kg0">n = 0 … 15</div>
+      <div class="pm-cell pm-kg1">n = 128 … 143</div>
+
+      <div class="pm-lane">⋮</div>
+      <div class="pm-cell pm-kg0">⋮</div>
+      <div class="pm-cell pm-kg1">⋮</div>
+
+      <div class="pm-lane">lane 7</div>
+      <div class="pm-cell pm-kg0">n = 112 … 127</div>
+      <div class="pm-cell pm-kg1">n = 240 … 255</div>
+
+      <div class="pm-page">页 1<br><span style="font-weight:400">kg=2,3</span></div>
+      <div class="pm-h" style="text-align:center">kg = 2</div>
+      <div class="pm-h" style="text-align:center">kg = 3</div>
+
+      <div class="pm-lane">lane 0</div>
+      <div class="pm-cell pm-kg0">n = 256 … 271</div>
+      <div class="pm-cell pm-kg1">n = 384 … 399</div>
+
+      <div class="pm-lane">⋮</div>
+      <div class="pm-cell pm-kg0">⋮</div>
+      <div class="pm-cell pm-kg1">⋮</div>
+
+      <div class="pm-lane">lane 7</div>
+      <div class="pm-cell pm-kg0">n = 368 … 383</div>
+      <div class="pm-cell pm-kg1">n = 496 … 511</div>
+    </div>
+
+    <p class="lede">注意这个配置 <code>BLOCK_N × G = 16384</code> <b>正好铺满两页，没有 padding</b>。也要注意<b>输出通道 256…511（整块的一半）的 scale 只存在于第 2 页</b> —— 所以跨页步长若算错，一半通道会静默用错 scale 而不是报错。参考 kernel 特意选这个配置，就是为了让多页路径真的被跑到。</p>
+
+    <div class="callout">
+      <b>多页唯一的额外要求：<code>G</code> 必须整除 64。</b>每个 <code>kg</code> 占 <code>G</code> 个 16 行格子，只有 <code>G | 64</code> 时这 <code>G</code> 个格子才不会横跨页边界，一个 <code>kg</code> 才能继续用<b>一条</b> <code>(lane, g, row16)</code> 的 DMA 描述完。<code>BLOCK_K</code> 与 <code>UGROUP</code> 都是 2 的幂时 <code>G</code> 自然是 2 的幂，<code>G ≤ 64</code> 即自动满足；<code>G &gt; 64</code>（<code>BLOCK_K ≥ 64×UGROUP</code>）会让单个 <code>kg</code> 就跨页，kernel 里 <code>static_assert</code> 直接拒掉。<br><br>这只是 <b>kernel 侧 4 维 block ptr 的表达能力限制，不是数据布局限制</b> —— <code>forward_transform_uscale</code> 和生产 host 打包器用的都是更通用的 <code>linear_slot // 64</code>，对任意 <code>G</code> 都算得对。真碰到非 2 的幂的 <code>UGROUP</code>，是 kernel 再拆一层循环的事，不用动 host 或 transform。
     </div>
   </section>
   <section>
@@ -1231,14 +1325,14 @@
           <td>GDG → LDG</td>
           <td class="rw-in">in</td>
           <td><code>[CORE_NUM]</code> 个 i64 地址</td>
-          <td>weight 自己的 per-channel UScale，每 block 一个物理 WUS 页，已按第三节的页格式排好。</td>
+          <td>weight 自己的 per-channel UScale，每 block <code>USCALE_PAGES</code> 个连续物理 WUS 页，已按第三节的页格式排好。</td>
         </tr>
         <tr>
           <td><code>fused_uscale_ptr_list</code></td>
           <td>GDG → LDG</td>
           <td class="rw-inout">inout</td>
           <td><code>[CORE_NUM]</code> 个 i64 地址</td>
-          <td><b>方案二专有。</b>fused UScale arena，与 <code>origin_uscale</code> 同序同布局。基址与每一页都必须 16 KiB 对齐。</td>
+          <td><b>方案二专有。</b>fused UScale arena，与 <code>origin_uscale</code> 同序同布局（每 block <code>USCALE_PAGES</code> 个连续页）。基址与每一页都必须 16 KiB 对齐。</td>
         </tr>
         <tr>
           <td><code>output_ptr</code></td>
@@ -1260,6 +1354,10 @@
         <tr>
           <td><code>CORE_NUM</code></td><td>—</td><td>—</td><td>i32</td>
           <td>PE core 数，决定 N 的切分。</td>
+        </tr>
+        <tr>
+          <td><code>USCALE_PAGES</code></td><td>—</td><td>—</td><td>i32</td>
+          <td>一个 UScale block 占几个 16 KiB 物理 WUS 页，即第三节的 <code>S = ⌈BLOCK_N × G / 8192⌉</code>。<b>显式声明但非自由量</b>：kernel 内 <code>static_assert</code> 校验它与几何一致，填错编译期即报错。它是 constexpr、写在 <code>constants</code> 里，<b>不进 SIM_PARAMS</b>，所以 host 传参、<code>.zeus_arg</code>、入口签名都不受影响。</td>
         </tr>
         <tr>
           <td><code>BLOCK_M</code></td><td>—</td><td>—</td><td>i32</td>
@@ -1359,9 +1457,10 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
     <p class="lede">下面每一条都是<b>会导致静默错误或编译失败</b>的边界，不是建议。</p>
 
     <ul class="rule-list">
-      <li class="hard"><b><code>BLOCK_M</code> 必须为 1</b>不同 activation row 的 scale 不同，而一个 weight block 只有一份 fused UScale 页。要支持 <code>BLOCK_M &gt; 1</code> 需要每行一份页，属于后续工作。</li>
+      <li class="hard"><b><code>BLOCK_M</code> 必须为 1</b>不同 activation row 的 scale 不同，而一个 weight block 只有一份 fused UScale block。要支持 <code>BLOCK_M &gt; 1</code> 需要每行一份，属于后续工作。</li>
       <li class="hard"><b><code>BLOCK_N</code> 必须是 128 的整数倍</b>128 = 8 lane × 16 row 是一个完整的 super-group。不是整数倍时页内编址无法闭合。</li>
-      <li><b><code>BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192</code>（当前 kernel 的范围，非硬件上限）</b>这个界保证一个 block 的 scale 正好落在单个 16 KiB 页内。超过时 layout 变换会自动续到多页（32 KiB 等），硬件也支持，<b>只是参考 kernel 暂时按单页实现</b>；多页版本即将提供，改的是 kernel 内几个页相关常量，不涉及 ABI。</li>
+      <li><b><code>USCALE_PAGES</code> 必须等于 <code>⌈BLOCK_N × (BLOCK_K/UGROUP) / 8192⌉</code></b>即一个 UScale block 占几个 16 KiB 页（<code>≤ 8192</code> 时为 1，<code>≤ 16384</code> 时为 2，依此类推）。<b>多页已完整支持。</b>填小了 <code>ALIGNED_SPACE</code> 会少算一页、block stride 错位而静默读到别的 block；填大了同样错位。两种都不报错只会数值全错，所以 kernel 内用 <code>static_assert</code> 在<b>编译期</b>挡住。</li>
+      <li class="hard"><b><code>G = BLOCK_K / UGROUP</code> 必须整除 64</b>每个 <code>kg</code> 占 <code>G</code> 个 16 行格子，只有 <code>G | 64</code> 时这些格子才不横跨页边界，一个 <code>kg</code> 才能用一条 DMA 描述完。<code>BLOCK_K</code> 与 <code>UGROUP</code> 都是 2 的幂时自动满足；<code>G &gt; 64</code> 被 <code>static_assert</code> 拒绝。这是 kernel 侧 4 维 block ptr 的表达能力限制，不是数据布局限制。</li>
       <li class="hard"><b>UScale 存放位置必须 16 KiB 对齐</b><code>USaddr</code> 以 16 KiB 页为单位。方案二的 arena 基址和每一页都要对齐；仿真框架的 weight DRAM 分配器已相应改为 16 KiB 对齐。</li>
       <li><b><code>K</code> 必须按 <code>UGROUP</code> 对齐</b><code>BLOCK_K</code> 可以包含多个 <code>UGROUP</code>，不要求 <code>BLOCK_K == UGROUP</code>，但 quant group 必须完整落在 block 内。</li>
       <li><b>每个 core 的 <code>N</code> 必须按 <code>BLOCK_N</code> 对齐</b>多核时 N 先切给 core，再按 <code>BLOCK_N</code> 分块。</li>
@@ -1387,6 +1486,23 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
 
     <div class="callout">
       <b>这里不列两个方案的 wall 对照。</b>当前样本是单核、<code>M=2</code>、两个 weight block 的小 case，weight 与 UScale 的近存局部性差异在这个规模上还体现不出来，把两个数字并排会给出错误的印象。选型依据请看第四节：<b>默认用方案一</b>，方案二只在 weight 必须只读时才用。
+    </div>
+
+    <h3>多页（S=2）的验证矩阵</h3>
+
+    <p class="lede">多页支持合入前跑了一轮 <b>22 组 VCS 全量矩阵，全部 PASS</b>，同时覆盖 16 KiB 与 32 KiB 两侧。多 n-block 的组合是刻意加的 —— <b>单个 block 用不到 block stride，算错也看不出来</b>，只有跨 block 才会暴露。</p>
+
+    <div class="scope">
+      <div class="scope-row scope-head"><div>覆盖面</div><div>组数</div><div>说明</div></div>
+      <div class="scope-row"><div class="scope-key">16 KiB · non-fused</div><div>10</div><div class="scope-value">fp8×fp8 / fp8×int4，1core+2core，含非对齐 M=49 K=1021 N=1333</div></div>
+      <div class="scope-row"><div class="scope-key">16 KiB · fused</div><div>6</div><div class="scope-value">两方案 × {对齐, 多 n-block, K 尾块}</div></div>
+      <div class="scope-row"><div class="scope-key">32 KiB · fused</div><div>6</div><div class="scope-value">两方案 × {单 block, 多 n-block N=1024, K 尾块 5120}</div></div>
+    </div>
+
+    <p class="lede">32 KiB 关键 job：方案一 <code>9767de36622a</code> / <code>ab45288feba4</code> / <code>bbfeae1e6ad4</code>，方案二 <code>a244272ebf50</code> / <code>3a125eae97ec</code> / <code>6beced5f79e5</code>。另有 MLIR 769/769 与本地 22 组仿真矩阵。</p>
+
+    <div class="callout">
+      <b>关于个别 output 判为 <code>cos_99999</code> 而非 <code>bit_exact</code>。</b>每处差异都是<b>恰好一个 bf16 ULP</b>，落在 2048 个元素中的 1~2 个（量级已验算：11.375 在 [8,16) 区间的 bf16 ULP 正是 0.0625）。它<b>与多页无关</b>：两个方案都出现、<code>S=1</code> 也出现、差异位置有的落在第 0 页、两方案 ASM 的 PE 指令逐字段相同、<code>fused_uscale</code> 与 <code>packed_weight</code> 全部 bit-exact。决定性证据是 A/B —— job <code>a6542a51718b</code>（多页版本）与 job <code>b951cf6d9bf7</code>（<b>未改动的 master</b>，同 kernel 同 dynamic）表现逐位相同，均为 <code>cos=0.9999999915 / max_abs=0.125</code>。即 RTL 与 functional simulator 在 FP8 累加末尾 bf16 舍入边界上的既有噪声，不是回归。
     </div>
 
     <h3>演进过程</h3>
@@ -1418,6 +1534,10 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
   </section>
   <section>
     <h2>九、写这类 kernel 时踩过的坑</h2>
+
+    <div class="callout">
+      <b>页数别当成可以自由填的参数。</b><code>USCALE_PAGES</code> 虽然写在 <code>constants</code> 里，但它由 <code>(BLOCK_N, BLOCK_K, UGROUP)</code> 唯一决定，和 <code>forward_transform_uscale</code> 的 <code>padded_2K</code> 是同一个公式；sim 的 layout 串里 <code>aligned_space</code> 也已经隐含了页数。两处一旦不一致，<code>ALIGNED_SPACE</code> 就会少算或多算一页，block stride 随之错位，<b>读到的是别的 block 的数据 —— 不报错，只是数值全错</b>。所以 kernel 内用 <code>static_assert</code> 强校验；实测把 2 页 example 改成 <code>USCALE_PAGES=1</code>，编译期直接 <code>CompileTimeAssertionFailure</code>。
+    </div>
 
     <p class="lede">下面几条是实测撞过、并且会影响写法的编译器与硬件边界。参考 kernel 的注释里逐条记了原因和 issue 号，改 kernel 前建议先看一眼。</p>
 
@@ -1473,8 +1593,7 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
     <ul class="rule-list">
       <li><b>BLOCK_M &gt; 1</b>需要每个 activation row 一份 WUS 页，涉及 arena 容量与 USaddr 的按行推导。</li>
       <li><b>多核 arena 切分</b>参考 kernel 是 <code>CORE_NUM=1</code>。多核时每个 core 需要各自的 arena 区间，地址表按 core 索引，尚未验证。</li>
-      <li><b>多页 UScale（即将支持）</b><code>BLOCK_N × G &gt; 8192</code> 时一个 block 的 scale 会占 32 KiB 及以上、跨多个物理页。硬件与 layout 变换都已支持，缺的只是参考 kernel 里的页循环 —— 改动集中在几个页相关常量，ABI 不变。</li>
-      <li><b>INT4 weight</b>当前两个 example 都是 FP8。INT4 的 K 打包规则与 WBS 配置不同，需要单独验证。</li>
+            <li><b>INT4 weight</b>当前两个 example 都是 FP8。INT4 的 K 打包规则与 WBS 配置不同，需要单独验证。</li>
       <li><b>host 侧 arena 生命周期</b>slot 轮转、并发保护、graph replay 的具体策略由调用方决定，编译器只保证 kernel 内部的 store→PE 依赖。</li>
     </ul>
   </section>
@@ -1484,21 +1603,36 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
     <div class="status-line">
       <span class="status-pill on">方案一已合入 master</span>
       <span class="status-pill on">方案二已合入 master</span>
-      <span class="status-pill">BLOCK_N=256 · BLOCK_K=1024 · UGROUP=128</span>
+      <span class="status-pill">S=1：BLOCK_N=256 · BLOCK_K=1024 · UGROUP=128</span>
+        <span class="status-pill">S=2：BLOCK_N=512 · BLOCK_K=4096 · UGROUP=128</span>
+        <span class="status-pill on">多页已合入 master</span>
     </div>
     <p class="source-note">两份 kernel 的文件头都带完整的公式推导、页布局图和约束说明，可以直接作为改写的起点。两者的 <code>tl.dot</code>、两阶段结构、整页向量化的 scale 更新、以及 act scale 的 ABI 完全相同；差别只有 weight slab 的读写性、是否多一张 arena 地址表、以及 weight load 是否带 <code>uscale=</code>。</p>
+
+      <div class="callout ok">
+        <b>多页（S=2）的参考实现另有两份，kernel 代码与下面完全相同，只有 <code>constants</code> 不同</b> —— 这正是多页支持是"泛化"而非"分支"的证明：同一份代码在 <code>S=1</code> 时所有 constexpr 折回单页写法，逐字节等价。
+        <div class="scope" style="margin-top:12px">
+          <div class="scope-row scope-head"><div>constants</div><div>S=1 参考实现（下方源码）</div><div>S=2 参考实现</div></div>
+          <div class="scope-row"><div class="scope-key">BLOCK_K</div><div>1024</div><div class="scope-value">4096</div></div>
+          <div class="scope-row"><div class="scope-key">BLOCK_N</div><div>256</div><div class="scope-value">512</div></div>
+          <div class="scope-row"><div class="scope-key">G = BLOCK_K/UGROUP</div><div>8</div><div class="scope-value">32</div></div>
+          <div class="scope-row"><div class="scope-key">BLOCK_N × G</div><div>2048（占一页 1/4）</div><div class="scope-value">16384（正好两页）</div></div>
+          <div class="scope-row"><div class="scope-key">USCALE_PAGES</div><div>1 → 16 KiB</div><div class="scope-value">2 → 32 KiB</div></div>
+        </div>
+        <p style="margin:12px 0 0">文件名：<code>..._fused_uscale_2page_bf16dst_f32acc_1x4096x512_1core.py</code>（方案一）与 <code>..._fused_uscale_separate_2page_bf16dst_f32acc_1x4096x512_1core.py</code>（方案二），同在 <code>triton_shared/python/zeus_examples/GEMM/</code>。</p>
+      </div>
 
     <details class="source-details">
       <summary>方案一：triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_aligned_fp8xfp8_ugroup128_fused_uscale_bf16dst_f32acc_1x1024x256_1core.py</summary>
       <pre class="source-code"><code id="fused-uscale-kernel-source">
-# SIM_PARAMS: activation_fp8:ptr:in:[1,1,"M","K"]:fp8  activation_scale:ptr:in:["M","((K+1023)//1024)*8"]:bf16  packed_weight:wgt_ptr:inout:[1,"N","K"]:fp8:uscale_128_aligned_278528_bk_1024_bn_256  origin_uscale:wgt_ptr:in:["N//256","(K+1023)//1024",8,1024]:bf16:raw  output:ptr:out:[1,1,"M","N"]:bf16  M:i32  K:i32  N:i32
+# SIM_PARAMS: activation_fp8:ptr:in:[1,1,&quot;M&quot;,&quot;K&quot;]:fp8  activation_scale:ptr:in:[&quot;M&quot;,&quot;((K+1023)//1024)*8&quot;]:bf16  packed_weight:wgt_ptr:inout:[1,&quot;N&quot;,&quot;K&quot;]:fp8:uscale_128_aligned_278528_bk_1024_bn_256  origin_uscale:wgt_ptr:in:[&quot;N//256&quot;,&quot;(K+1023)//1024&quot;,8,1024]:bf16:raw  output:ptr:out:[1,1,&quot;M&quot;,&quot;N&quot;]:bf16  M:i32  K:i32  N:i32
 # SIM_GOLDEN: fused_uscale_matmul
 # SIM_RANGE: M=1:3 K=1024:3072 N=256:768
-"""设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
+&quot;&quot;&quot;设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
 
 本 example 是 fused UScale 的首个参考实现，采用**方案一（邻接原地更新）**：
-每个 weight block 后面紧跟属于它自己的 fused UScale 页，设备侧算完直接原地
-覆盖该页，kernel ABI 不传独立的 fused_uscale 指针。
+每个 weight block 后面紧跟属于它自己的 fused UScale block（S 个连续 16 KiB
+物理页），设备侧算完直接原地覆盖，kernel ABI 不传独立的 fused_uscale 指针。
 
 ===============================================================================
 1. 为什么需要 fused UScale
@@ -1520,6 +1654,45 @@ PE 每吃满 UGROUP 个 K 就自动换一次 scale，换的是**按输出通道 
 ===============================================================================
 2. 记号：WUS 页的通道编址
 ===============================================================================
+
+**术语：WUS = Weight UScale**，挂在 WL1 上的 weight 量化系数。理解本 example
+先要理清三层关系：
+
+    weight block        BLOCK_N × BLOCK_K 个 FP8 权重
+         ↕ 一一配对
+    UScale block(WUS)   BLOCK_N × G 个 BF16 系数，G = BLOCK_K / UGROUP
+         ↕ 按 16 KiB 物理页存放
+    物理页              1 页 = 8 个 WL1 lane × 每 lane 1024 个 BF16
+                        = 8192 个 BF16 = 16 KiB
+
+**每个 weight block 配一个属于它自己的 UScale block。** weight 沿 K 每 UGROUP
+个元素共用一个量化系数，而系数按输出通道 n 索引（weight 量化本来就是
+per-channel），所以一个 block 需要 BLOCK_N × G 个系数 —— 即使 act scale 沿 n
+是常数，也要铺满这 BLOCK_N 行。方案一把 UScale block 紧跟在自己的 weight block 后面（见 §3）。
+
+**为什么会有多页。** 硬件读 UScale 的最小单位是 16 KiB 的页，起始地址也必须
+16 KiB 对齐，所以既不存在更小的粒度、也只能按整页递增。一页装 8192 个 BF16：
+
+    页数 S = ⌈BLOCK_N × G / 8192⌉
+
+      BLOCK_N × G ≤  8192   → S = 1  （16 KiB）
+      BLOCK_N × G ≤ 16384   → S = 2  （32 KiB）
+      以此类推
+
+    换算成 weight 规模：需要多页 ⟺ BLOCK_N × BLOCK_K &gt; 8192 × UGROUP。
+    UGROUP=128 时即单个 weight block 超过 1 M 个元素（FP8 权重 1 MiB）。
+    实践中触发多页的典型场景是细粒度量化（UGROUP=32/64 把门槛降到
+    256 K / 512 K）或大 BLOCK_N × 大 BLOCK_K 的驻留式分块。
+
+    本 example：BLOCK_N=256、G=8 → 256×8 = 2048 ≤ 8192，**S = 1**（16 KiB），
+    只用掉一页容量的 1/4，其余是页内 padding。
+
+S &gt; 1 时这 S 个页在 DRAM 里**连续排列**；PE 的 USaddr 只指向第一页，后续页由
+硬件的地址生成器按 tk/tc 计数器自己走过去（VCS 实证 job 23a02ed4fcc0）。
+S 由 `USCALE_PAGES` 这个 constexpr 显式声明（`constants` 表里一眼可见），
+并在 kernel 内用 static_assert 校验它等于几何推出的
+⌈BLOCK_N × G / 8192⌉ —— 与 `forward_transform_uscale` 的 padded_2K 同一公式，
+填错编译期即报错。详见 §3 末尾。
 
     G    = BLOCK_K / UGROUP        每个 weight block 含多少个 K quant group
     lane ∈ [0, 8)                  WL1 lane
@@ -1543,20 +1716,23 @@ PE 每吃满 UGROUP 个 K 就自动换一次 scale，换的是**按输出通道 
 
 packed_weight（inout）按 (n_block, k_block) 顺序排 combined unit：
 
-    ┌───────────────────────────────┬──────────────────┐
-    │  block 0 weight               │  fused UScale    │  combined unit 0
-    │  BLOCK_N × BLOCK_K  FP8       │  一个物理 WUS 页  │  = ALIGNED_SPACE
-    │  = 262144 B                   │  = 16 KiB        │  = 278528 B
-    ├───────────────────────────────┼──────────────────┤
-    │  block 1 weight               │  fused UScale    │  combined unit 1
-    ├───────────────────────────────┼──────────────────┤
-    │            ⋮                  │        ⋮         │
-    └───────────────────────────────┴──────────────────┘
+    ┌───────────────────────────────┬────────────────────┐
+    │  block 0 weight               │  fused UScale      │  combined unit 0
+    │  BLOCK_N × BLOCK_K  FP8       │  S 个物理 WUS 页    │  = ALIGNED_SPACE
+    │  = 262144 B                   │  = S × 16 KiB      │  = 278528 B
+    │                               │  本 example S=1    │  (S=1)
+    ├───────────────────────────────┼────────────────────┤
+    │  block 1 weight               │  fused UScale      │  combined unit 1
+    ├───────────────────────────────┼────────────────────┤
+    │            ⋮                  │         ⋮          │
+    └───────────────────────────────┴────────────────────┘
                                     ↑
-        PE 用 USaddr = block_base + weight_bytes 取 scale，相对位置由硬件固定
+        PE 用 USaddr = block_base + weight_bytes 取 scale。USaddr 只指向**第一页**，
+        后续页由硬件地址生成器按 tk/tc 计数器自己走过去（VCS 实证 job 23a02ed4fcc0）。
 
 origin_uscale（只读）按同样的 block 顺序存 original weight UScale，每 block
-一个物理 WUS 页，可以独立连续存放 —— 它只参与更新，不在 PE 取数的关键路径上。
+S 个连续物理 WUS 页，可以独立连续存放 —— 它只参与更新，不在 PE 取数的关键
+路径上。
 
 -------------------------------------------------------------------------------
 物理 WUS 页内部（8 个 WL1 lane，每 lane stride 1024 个 BF16，共 16 KiB）
@@ -1577,11 +1753,28 @@ origin_uscale（只读）按同样的 block 顺序存 original weight UScale，�
     同一 kg 内 g1..g7 覆盖的是同一批通道、不同的 K quant group）；
     相邻 lane 相差 16 个通道，相邻 kg 相差 128 个通道。
 
-页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据只有
-BLOCK_N × G 个（本 example 2048 个，占页面 1/4），其余是页内 padding。
-约束 (BLOCK_N/128) × G × 16 ≤ 1024，等价于 **BLOCK_N × G ≤ 8192**；
-超出这个界 forward_transform_uscale 会把页分段（S &gt; 1），本 kernel 的
-单段视图就不再成立。
+页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据是 BLOCK_N × G 个
+（本 example 2048 个，占单页的 1/4），其余是页内 padding。
+
+**UScale 区域是带 page 的**：16 KiB 只是硬件的页粒度（8 lane × 每 lane 1024
+BF16），不是区域上限。区域大小 = S × 16 KiB：
+
+    S = ⌈BLOCK_N × G / 8192⌉        每个 weight block 占几页
+
+    S = 1（16 KiB）⟺ BLOCK_N × G ≤ 8192   ← 本 example 属于这一档
+    S = 2（32 KiB）⟺ 8192 &lt; BLOCK_N × G ≤ 16384
+    以此类推
+
+本 kernel 已支持任意 S：页数由 `USCALE_PAGES` 声明并经 static_assert 校验，
+`KG_PER_PAGE` 把 kg 拆成 (页号, 页内起始格子) 展开寻址，S=1 时折叠回单页写法、
+零运行时代价。S=2 的参考配置见
+`..._fused_uscale_2page_bf16dst_f32acc_1x4096x512_1core.py`。
+
+`USCALE_PAGES` 作为 constexpr 显式传入，让调用方一眼看到这个 kernel 的 UScale
+block 占几页；但它**不是自由量** —— 由 (BLOCK_N, BLOCK_K, UGROUP) 唯一决定，与
+`forward_transform_uscale` 的 padded_2K 同一公式。kernel 内的 static_assert 强校验
+两者一致：填小了 ALIGNED_SPACE 会少算一页、block stride 错位而静默读到别的 block，
+填大了同样错位，两种都不报错只是数值全错，所以必须在编译期挡住。
 
 ===============================================================================
 4. GDG 排布：act scale 用最朴素的形状
@@ -1614,7 +1807,7 @@ group 而不越界 —— boundary_check 在硬件上是**裁 tile 尺寸**而�
 5. 执行语义
 ===============================================================================
 
-BLOCK_M 固定为 1：fused UScale 紧贴 weight block，一个 block 只有一页 WUS，
+BLOCK_M 固定为 1：fused UScale 紧贴 weight block，一个 block 只有一份 WUS 区域，
 而不同 token 的 act scale 不同，所以只能逐 token 重算。对每个 M row：
 
     for each weight block:
@@ -1622,7 +1815,7 @@ BLOCK_M 固定为 1：fused UScale 紧贴 weight block，一个 block 只有一�
         LD  origin weight UScale [8, G, 16]  ─┐
         LD  act scale [1, G, 1]              ─┼→ VP 相乘 → ST 覆盖对应的页区间
     然后执行该 row 的标准 blocked GEMM
-        weight 仍走 tl.load(..., memory_type="weight", ugroup=UGROUP)，
+        weight 仍走 tl.load(..., memory_type=&quot;weight&quot;, ugroup=UGROUP)，
         tl.dot 不增加任何 scale 参数
 
 -------------------------------------------------------------------------------
@@ -1640,8 +1833,8 @@ BLOCK_M 固定为 1：fused UScale 紧贴 weight block，一个 block 只有一�
 （4.7 倍回退）**，而 PE/VP 的工作量一模一样。
 
 反过来，若保持 C=16 而想让 act scale 沿 W 轴（kg,g 合并轴）平铺，reshape
-出来的视图不 compact，会被 "VP matrix C-broadcast requires a proven compact
-SrcB view" 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
+出来的视图不 compact，会被 &quot;VP matrix C-broadcast requires a proven compact
+SrcB view&quot; 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
 一起解决；BLOCK_N = 128 时循环退化成 1 次，零代价（实测与不拆完全同 cycle）。
 
 K 非 BLOCK_K 整数倍时，尾部 group 必须显式写 0（同一份 packed slab 会被后续
@@ -1657,7 +1850,7 @@ M row 复用，不写会残留上一行的 fused scale）。该 guard 由 K_ALIG
 * ``packed_weight_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的 LDG
                               inout 区，combined unit 排布见 §3。
 * ``origin_uscale_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的只读
-                              LDG，每 block 一个物理 WUS 页。
+                              LDG，每 block S 个连续物理 WUS 页（本 example S=1）。
 * ``output_ptr``           GDG 写出，逻辑 [M, N] 的 BF16。
 
 约束：
@@ -1666,12 +1859,16 @@ M row 复用，不写会残留上一行的 fused scale）。该 guard 由 K_ALIG
 * K 必须按 UGROUP 对齐；BLOCK_K 可含多个 UGROUP（不要求 BLOCK_K == UGROUP）。
 * 每个 core 的 N 必须按 BLOCK_N 对齐，且 BLOCK_N 必须是 128 的整数倍
   （128 = 8 lane × 16 row 是一个 super-group）。
-* BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192，保证一个 block 的全部 scale 放得进
-  相邻的单个 WUS 页（见 §3）。
+* UScale 区域按 16 KiB 分页，一个 block 占 S = ⌈BLOCK_N × G / 8192⌉ 个
+  相邻的连续 WUS 页（G = BLOCK_K / UGROUP，见 §3）。
+  BLOCK_N × G ≤ 8192 时 S=1（16 KiB），≤ 16384 时 S=2（32 KiB），以此类推。
+  S 由 constexpr `USCALE_PAGES` 显式声明，并经 static_assert 校验与几何一致。
+* G 必须整除 64，否则单个 kg 的 scale 段会横跨页边界（kernel 侧 static_assert
+  拒绝）。BLOCK_K 与 UGROUP 均为 2 的幂时自动满足。
 * activation 与 weight 必须用相同的 UGROUP。
 * 同一份 packed_weight 不能被多个 invocation 并发更新；kernel 返回时其中保留
   最后一个 M row 对应的 fused UScale。
-"""
+&quot;&quot;&quot;
 
 
 import triton
@@ -1683,7 +1880,7 @@ def gemm_fused_uscale_fp8xfp8_kernel(
     activation_fp8_ptr,           # GDG readonly；FP8 [M, K]
     activation_scale_ptr,         # GDG readonly；BF16 per-group scale [M, K / UGROUP, N]
     packed_weight_ptr_list,       # GDG [CORE_NUM] 地址表 -&gt; LDG inout [weight block][物理 WUS page]
-    origin_uscale_ptr_list,       # GDG [CORE_NUM] 地址表 -&gt; LDG readonly；每个 block 逻辑 [BLOCK_N, BLOCK_K / UGROUP]，物理 WUS page [8, 1024]
+    origin_uscale_ptr_list,       # GDG [CORE_NUM] 地址表 -&gt; LDG readonly；每个 block 逻辑 [BLOCK_N, BLOCK_K / UGROUP]，物理 USCALE_PAGES 个 WUS page [8, 1024]
     output_ptr,                   # GDG writeonly；BF16 [M, N]
     M,                            # 运行时 i32 标量；GEMM M
     K,                            # 运行时 i32 标量；GEMM K
@@ -1693,9 +1890,11 @@ def gemm_fused_uscale_fp8xfp8_kernel(
     BLOCK_K: tl.constexpr,        # 编译期 K tile；必须是 UGROUP 的整数倍
     BLOCK_N: tl.constexpr,        # 编译期 N tile；packed weight block 的 N 维
     UGROUP: tl.constexpr,         # 编译期标量；activation/weight 沿 K 的量化粒度
+    USCALE_PAGES: tl.constexpr,   # 编译期标量；一个 UScale block 占几个 16 KiB 物理 WUS 页
+                                  #   = ceil(BLOCK_N * (BLOCK_K/UGROUP) / 8192)，见 §2/§3
     K_ALIGNED: tl.constexpr,      # 编译期标量；K 是否为 BLOCK_K 的整数倍
 ):
-    """逐 activation row 更新相邻 fused UScale，再执行 block GEMM。"""
+    &quot;&quot;&quot;逐 activation row 更新相邻 fused UScale，再执行 block GEMM。&quot;&quot;&quot;
     # 物理 WUS 页由 8 个 WL1 lane 组成，每个 lane 固定占 1024 个 BF16。
     USCALE_ELEMENT_BYTES: tl.constexpr = 2
     USCALE_LANES: tl.constexpr = 8
@@ -1718,10 +1917,35 @@ def gemm_fused_uscale_fp8xfp8_kernel(
     PAGE_ROWS_PER_LANE: tl.constexpr = (
         N_SUPER_GROUPS * GROUPS_PER_WEIGHT_BLOCK
     )
+    # 每个 lane 在一页里有 1024/16 = 64 个 16 行格子。
+    USCALE_ROWS_PER_PAGE_LANE: tl.constexpr = (
+        USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE
+    )
+    # What: 一页装得下几个 kg, 以及一个 weight block 的 UScale 要几页。
+    # Why:  16 KiB 只是硬件的页粒度, 不是 UScale 区域的上限 —— 区域可以是任意
+    #   16 KiB 整数倍 (forward_transform_uscale 的 padded_2K 本来就按 1024 向上
+    #   取整分段, 两套 simulator 和生产 host 打包器也都按页数 ceil 算大小)。
+    #   BLOCK_N*G &gt; 8192 时一页装不下, 必须按页拆开寻址。
+    # Assumption: G 整除 64 (见下面的 static_assert), 于是每个 kg 的 G 个格子
+    #   完整落在同一页内, 不会横跨页边界 —— 这样一个 kg 仍然只要一条 DMA。
+    KG_PER_PAGE: tl.constexpr = (
+        USCALE_ROWS_PER_PAGE_LANE // GROUPS_PER_WEIGHT_BLOCK
+    )
+    # USCALE_PAGES 由调用方在 constants 里显式声明, 让人一眼看到这个 kernel 的
+    # UScale block 占几页; 但它不是自由量 —— 由 (BLOCK_N, BLOCK_K, UGROUP) 唯一
+    # 决定, 与 forward_transform_uscale 的 padded_2K 同一公式。这里编译期强校验
+    # 两者一致: 填小了 ALIGNED_SPACE 会少算一页、block stride 错位而静默读到别的
+    # block; 填大了同样错位。两种都不报错只是数值全错, 所以必须 fail-loud。
+    tl.static_assert(
+        USCALE_PAGES == (N_SUPER_GROUPS + KG_PER_PAGE - 1) // KG_PER_PAGE,
+        &quot;USCALE_PAGES 必须等于 ceil(BLOCK_N * G / 8192), 即 UScale block 的页数&quot;,
+    )
     WEIGHT_BYTES_PER_BLOCK: tl.constexpr = BLOCK_N * BLOCK_K
     ALIGNED_SPACE_BYTES: tl.constexpr = (
         WEIGHT_BYTES_PER_BLOCK
-        + USCALE_PAGE_BF16_ELEMS * USCALE_ELEMENT_BYTES
+        + USCALE_PAGES
+        * USCALE_PAGE_BF16_ELEMS
+        * USCALE_ELEMENT_BYTES
     )
     ALIGNED_SPACE_BF16: tl.constexpr = (
         ALIGNED_SPACE_BYTES // USCALE_ELEMENT_BYTES
@@ -1737,19 +1961,23 @@ def gemm_fused_uscale_fp8xfp8_kernel(
 
     # BLOCK_M 必须为 1：不同 activation row 有不同的 scale，而一次 PE dot
     # 只能为整个 M tile 绑定同一份 weight UScale。
-    tl.static_assert(BLOCK_M == 1, "每次 dot 只能消费一行 activation scale")
+    tl.static_assert(BLOCK_M == 1, &quot;每次 dot 只能消费一行 activation scale&quot;)
     # BLOCK_K 是 PE tile 宽度，不等于 quant group。一个 weight block 可以
     # 包含多个 UGROUP；只要求 group 完整落在 block 内，并且全部 scale
     # 能放进每个 WL1 lane 的物理区域。
-    tl.static_assert(BLOCK_K % UGROUP == 0, "K block 必须包含整数个 quant group")
+    tl.static_assert(BLOCK_K % UGROUP == 0, &quot;K block 必须包含整数个 quant group&quot;)
     tl.static_assert(
         BLOCK_N % USCALE_CHANNELS_PER_SUPER == 0,
-        "输出通道必须能够均分成 128 通道的 super-group",
+        &quot;输出通道必须能够均分成 128 通道的 super-group&quot;,
     )
+    # UScale 区域可以跨多页 (见 USCALE_PAGES), 但要求 G 整除 64:
+    # 每个 kg 占 G 个 16 行格子, 只有 G | 64 时这 G 个格子才不会横跨页边界,
+    # 一个 kg 才能继续用一条 (lane, g, row16) 的 DMA 描述完。
+    # BLOCK_K 与 UGROUP 都是 2 的幂时 G 自然是 2 的幂, G&lt;=64 即自动满足;
+    # G&gt;64 (BLOCK_K &gt;= 64*UGROUP) 会让单个 kg 就跨页, 这里 fail-loud 不支持。
     tl.static_assert(
-        PAGE_ROWS_PER_LANE * USCALE_ROW_GRANULE
-        &lt;= USCALE_LANE_STRIDE_BF16,
-        "每个 WL1 lane 的 quant-group scale 必须能放入自己的 WUS 区域",
+        USCALE_ROWS_PER_PAGE_LANE % GROUPS_PER_WEIGHT_BLOCK == 0,
+        &quot;每个 K-group 段必须整除页内行数 (G | 64), 否则 kg 会横跨 WUS 页边界&quot;,
     )
 
     core_id = tl.program_id(axis=0)
@@ -1811,8 +2039,8 @@ def gemm_fused_uscale_fp8xfp8_kernel(
         # Assumption: origin/fused 页与 act scale 能用同一套
         #   (lane, g, row16) 索引表达且 stride 递减 —— 页是 (1024, 16, 1),
         #   act scale 沿 g 变、由硬件在 row16 方向做 C 广播。
-        # Not covered: 仍要求 (BLOCK_N/128)*G*16 &lt;= USCALE_LANE_STRIDE_BF16
-        #   (见上面的 static_assert); 不改变页内布局和数值语义。
+        # Not covered: 仍要求 G 整除 64 (见上面的 static_assert), 即单个 kg 的
+        #   scale 段不横跨 WUS 页边界; 不改变页内布局和数值语义。
         for block_idx in range(total_weight_blocks):
             n_block = block_idx // total_k_blocks
             k_block = block_idx % total_k_blocks
@@ -1828,26 +2056,36 @@ def gemm_fused_uscale_fp8xfp8_kernel(
             #      wall 4,968 -&gt; 23,301)。
             #   2. act scale 只随 g 变, 每个 kg 用的是同一份 [1,1,G,1],
             #      直接做 C 方向广播即可; 若改成沿 W 平铺, reshape 出来的
-            #      视图不 compact, 会被 "VP matrix C-broadcast requires a
-            #      proven compact SrcB view" 拒掉。
+            #      视图不 compact, 会被 &quot;VP matrix C-broadcast requires a
+            #      proven compact SrcB view&quot; 拒掉。
             for super_group in tl.static_range(N_SUPER_GROUPS):
-                row_start = super_group * GROUPS_PER_WEIGHT_BLOCK
+                # What: 把 kg 拆成 (页号, 页内起始格子) 两级。
+                # Why:  BLOCK_N*G &gt; 8192 时一个 block 的 UScale 占 S&gt;1 页, kg 大到
+                #   一定程度就落到后面的页里。S=1 时 KG_PER_PAGE &gt;= N_SUPER,
+                #   page 恒为 0、row_start 退化成 super_group*G, 与原写法逐字节等价。
+                # Assumption: G | 64, 所以 kg 的 G 个格子不跨页 (见 static_assert)。
+                page = super_group // KG_PER_PAGE
+                row_start = (super_group % KG_PER_PAGE) * GROUPS_PER_WEIGHT_BLOCK
+                # 第 1 轴取 S*8 长: 索引 = page*8 + lane, 配 stride 1024 后
+                # 偏移 = page*8192 + lane*1024, 正好是「跨 16 KiB 页 + 页内 lane」。
                 original_uscale = tl.load(
                     tl.make_block_ptr(
                         base=origin_uscale_base,
-                        shape=(total_weight_blocks, USCALE_LANES,
-                               USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE,
+                        shape=(total_weight_blocks,
+                               USCALE_PAGES * USCALE_LANES,
+                               USCALE_ROWS_PER_PAGE_LANE,
                                USCALE_ROW_GRANULE),
-                        strides=(USCALE_PAGE_BF16_ELEMS,
+                        strides=(USCALE_PAGES
+                                 * USCALE_PAGE_BF16_ELEMS,
                                  USCALE_LANE_STRIDE_BF16,
                                  USCALE_ROW_GRANULE, 1),
-                        offsets=(block_idx, 0, row_start, 0),
+                        offsets=(block_idx, page * USCALE_LANES, row_start, 0),
                         block_shape=(1, USCALE_LANES,
                                      GROUPS_PER_WEIGHT_BLOCK,
                                      USCALE_ROW_GRANULE),
                         order=(3, 2, 1, 0),
                     ),
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                 )
                 # act scale ABI 就是算法侧原本的 per-128 形状 [M, K/UGROUP],
                 # 不需要按 WL1 lane 重排。这里读成 [1,1,G,1] 后由硬件沿
@@ -1878,22 +2116,27 @@ def gemm_fused_uscale_fp8xfp8_kernel(
                         original_uscale.to(tl.float32)
                         * act_narrow.to(tl.float32) * group_mask
                     ).to(tl.bfloat16)
+                # combined unit 的第 1 轴以 1024 个 BF16 为一段, 一页正好 8 段,
+                # 所以第 page 页的首段 = SCALE_FIRST_SEGMENT + page*8。形状与
+                # stride 都不用动 —— 多页只是让 SEGMENTS_PER_UNIT 变大。
                 tl.store(
                     tl.make_block_ptr(
                         base=packed_slab_base,
                         shape=(total_weight_blocks, SEGMENTS_PER_UNIT,
-                               USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE,
+                               USCALE_ROWS_PER_PAGE_LANE,
                                USCALE_ROW_GRANULE),
                         strides=(ALIGNED_SPACE_BF16, USCALE_LANE_STRIDE_BF16,
                                  USCALE_ROW_GRANULE, 1),
-                        offsets=(block_idx, SCALE_FIRST_SEGMENT, row_start, 0),
+                        offsets=(block_idx,
+                                 SCALE_FIRST_SEGMENT + page * USCALE_LANES,
+                                 row_start, 0),
                         block_shape=(1, USCALE_LANES,
                                      GROUPS_PER_WEIGHT_BLOCK,
                                      USCALE_ROW_GRANULE),
                         order=(3, 2, 1, 0),
                     ),
                     fused_uscale,
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                 )
 
         # 当前行的 scale 更新结束后走标准 blocked GEMM。weight load 使用
@@ -1909,7 +2152,7 @@ def gemm_fused_uscale_fp8xfp8_kernel(
                 activation = tl.load(
                     tl.advance(activation_template, (m_start, k_start)),
                     boundary_check=(0, 1),
-                    padding_option="zero",
+                    padding_option=&quot;zero&quot;,
                 )
                 packed_block_byte_offset = block_idx * ALIGNED_SPACE_BYTES
                 weight = tl.load(
@@ -1921,7 +2164,7 @@ def gemm_fused_uscale_fp8xfp8_kernel(
                         block_shape=(BLOCK_N, BLOCK_K),
                         order=(1, 0),
                     ),
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                     ugroup=UGROUP,
                 )
                 accumulator += tl.dot(
@@ -1938,49 +2181,50 @@ def gemm_fused_uscale_fp8xfp8_kernel(
 
 
 signature = {
-    "activation_fp8_ptr": "*fp8e4nv",
-    "activation_scale_ptr": "*bf16",
-    "packed_weight_ptr_list": "*i64",
-    "origin_uscale_ptr_list": "*i64",
-    "output_ptr": "*bf16",
-    "M": "i32",
-    "K": "i32",
-    "N": "i32",
+    &quot;activation_fp8_ptr&quot;: &quot;*fp8e4nv&quot;,
+    &quot;activation_scale_ptr&quot;: &quot;*bf16&quot;,
+    &quot;packed_weight_ptr_list&quot;: &quot;*i64&quot;,
+    &quot;origin_uscale_ptr_list&quot;: &quot;*i64&quot;,
+    &quot;output_ptr&quot;: &quot;*bf16&quot;,
+    &quot;M&quot;: &quot;i32&quot;,
+    &quot;K&quot;: &quot;i32&quot;,
+    &quot;N&quot;: &quot;i32&quot;,
 }
 
 constants = {
-    "CORE_NUM": 1,
-    "BLOCK_M": 1,
-    "BLOCK_K": 1024,
-    "BLOCK_N": 256,
-    "UGROUP": 128,
-    "K_ALIGNED": True,
+    &quot;CORE_NUM&quot;: 1,
+    &quot;BLOCK_M&quot;: 1,
+    &quot;BLOCK_K&quot;: 1024,
+    &quot;BLOCK_N&quot;: 256,
+    &quot;UGROUP&quot;: 128,
+    &quot;USCALE_PAGES&quot;: 1,
+    &quot;K_ALIGNED&quot;: True,
 }
 
 
 def resolve_constants(dynamic, constants):
-    """按运行时 K 选择是否需要尾块 mask。
+    &quot;&quot;&quot;按运行时 K 选择是否需要尾块 mask。
 
     K 是 BLOCK_K 整数倍时每个 weight block 都读满 G 个 K-group, 不需要 mask;
     否则最后一个 block 有尾部 group 要置零。两条路径在编译期二选一, 对齐场景
     因此不付 mask 的代价。
 
-    CONTRACT: `dynamic` 里没有 K 时必须保守地判为"不对齐"。zeus_compile.py 从
+    CONTRACT: `dynamic` 里没有 K 时必须保守地判为&quot;不对齐&quot;。zeus_compile.py 从
     环境变量 ZEUS_SIM_DYNAMIC 取 dynamic, GEMM suite 的 Phase 1 在不设该变量的
     情况下先编译一份通用 IR, 再把它连同各 case 的 --dynamic 交给 sim_test.py。
     此时若拿 BLOCK_K 当 K 的缺省值, 就会算出 K_ALIGNED=True 并静默丢掉 mask,
     而那份 IR 随后会被 K 非 BLOCK_K 整数倍的 case 使用 —— 尾块的无效 group
     会残留上一行的 fused scale。缺失信息必须落到带 mask 的安全侧。
-    """
-    block_k = int(constants["BLOCK_K"])
-    k_size = dynamic.get("K")
-    constants["K_ALIGNED"] = (
+    &quot;&quot;&quot;
+    block_k = int(constants[&quot;BLOCK_K&quot;])
+    k_size = dynamic.get(&quot;K&quot;)
+    constants[&quot;K_ALIGNED&quot;] = (
         k_size is not None and int(k_size) % block_k == 0
     )
     return constants
 
 
-if __name__ == "__main__":
+if __name__ == &quot;__main__&quot;:
     from kernel_to_linalg import kernel_to_linalg
 
     kernel_to_linalg(
@@ -1995,15 +2239,15 @@ if __name__ == "__main__":
     <details class="source-details">
       <summary>方案二：triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_fp8xfp8_ugroup128_fused_uscale_separate_bf16dst_f32acc_1x1024x256_1core.py</summary>
       <pre class="source-code"><code id="fused-uscale-separate-kernel-source">
-# SIM_PARAMS: activation_fp8:ptr:in:[1,1,"M","K"]:fp8  activation_scale:ptr:in:["M","((K+1023)//1024)*8"]:bf16  packed_weight:wgt_ptr:in:[1,"N","K"]:fp8:blocked_1x1024x256  origin_uscale:wgt_ptr:in:["N//256","(K+1023)//1024",8,1024]:bf16:raw  fused_uscale:wgt_ptr:inout:["N//256","(K+1023)//1024",8,1024]:bf16:raw  output:ptr:out:[1,1,"M","N"]:bf16  M:i32  K:i32  N:i32
+# SIM_PARAMS: activation_fp8:ptr:in:[1,1,&quot;M&quot;,&quot;K&quot;]:fp8  activation_scale:ptr:in:[&quot;M&quot;,&quot;((K+1023)//1024)*8&quot;]:bf16  packed_weight:wgt_ptr:in:[1,&quot;N&quot;,&quot;K&quot;]:fp8:blocked_1x1024x256  origin_uscale:wgt_ptr:in:[&quot;N//256&quot;,&quot;(K+1023)//1024&quot;,8,1024]:bf16:raw  fused_uscale:wgt_ptr:inout:[&quot;N//256&quot;,&quot;(K+1023)//1024&quot;,8,1024]:bf16:raw  output:ptr:out:[1,1,&quot;M&quot;,&quot;N&quot;]:bf16  M:i32  K:i32  N:i32
 # SIM_GOLDEN: fused_uscale_separate_matmul
 # SIM_RANGE: M=1:3 K=1024:3072 N=256:768
-"""设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
+&quot;&quot;&quot;设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
 
 本 example 采用**方案二（独立 arena）**：packed weight 只读且只含 weight
 block，fused UScale 写进一块独立的 LDG arena，PE 通过显式绑定的 USaddr 去取。
 方案一（邻接原地更新）见 ``gemm_normal_blocked_aligned_fp8xfp8_ugroup128_
-fused_uscale_bf16dst_f32acc_1x1024x128_1core.py``，两者数值语义完全一致。
+fused_uscale_bf16dst_f32acc_1x1024x256_1core.py``，两者数值语义完全一致。
 
 ===============================================================================
 1. 为什么需要 fused UScale
@@ -2025,6 +2269,45 @@ PE 每吃满 UGROUP 个 K 就自动换一次 scale，换的是**按输出通道 
 ===============================================================================
 2. 记号
 ===============================================================================
+
+**术语：WUS = Weight UScale**，挂在 WL1 上的 weight 量化系数。理解本 example
+先要理清三层关系：
+
+    weight block        BLOCK_N × BLOCK_K 个 FP8 权重
+         ↕ 一一配对
+    UScale block(WUS)   BLOCK_N × G 个 BF16 系数，G = BLOCK_K / UGROUP
+         ↕ 按 16 KiB 物理页存放
+    物理页              1 页 = 8 个 WL1 lane × 每 lane 1024 个 BF16
+                        = 8192 个 BF16 = 16 KiB
+
+**每个 weight block 配一个属于它自己的 UScale block。** weight 沿 K 每 UGROUP
+个元素共用一个量化系数，而系数按输出通道 n 索引（weight 量化本来就是
+per-channel），所以一个 block 需要 BLOCK_N × G 个系数 —— 即使 act scale 沿 n
+是常数，也要铺满这 BLOCK_N 行。方案二把全部 UScale block 放在一块独立的 arena 里，weight 保持只读（见 §3）。
+
+**为什么会有多页。** 硬件读 UScale 的最小单位是 16 KiB 的页，起始地址也必须
+16 KiB 对齐，所以既不存在更小的粒度、也只能按整页递增。一页装 8192 个 BF16：
+
+    页数 S = ⌈BLOCK_N × G / 8192⌉
+
+      BLOCK_N × G ≤  8192   → S = 1  （16 KiB）
+      BLOCK_N × G ≤ 16384   → S = 2  （32 KiB）
+      以此类推
+
+    换算成 weight 规模：需要多页 ⟺ BLOCK_N × BLOCK_K &gt; 8192 × UGROUP。
+    UGROUP=128 时即单个 weight block 超过 1 M 个元素（FP8 权重 1 MiB）。
+    实践中触发多页的典型场景是细粒度量化（UGROUP=32/64 把门槛降到
+    256 K / 512 K）或大 BLOCK_N × 大 BLOCK_K 的驻留式分块。
+
+    本 example：BLOCK_N=256、G=8 → 256×8 = 2048 ≤ 8192，**S = 1**（16 KiB），
+    只用掉一页容量的 1/4，其余是页内 padding。
+
+S &gt; 1 时这 S 个页在 DRAM 里**连续排列**；PE 的 USaddr 只指向第一页，后续页由
+硬件的地址生成器按 tk/tc 计数器自己走过去（VCS 实证 job 23a02ed4fcc0）。
+S 由 `USCALE_PAGES` 这个 constexpr 显式声明（`constants` 表里一眼可见），
+并在 kernel 内用 static_assert 校验它等于几何推出的
+⌈BLOCK_N × G / 8192⌉ —— 与 `forward_transform_uscale` 的 padded_2K 同一公式，
+填错编译期即报错。详见 §3 末尾。
 
     G    = BLOCK_K / UGROUP        每个 weight block 含多少个 K quant group
     lane ∈ [0, 8)                  WL1 lane
@@ -2089,12 +2372,32 @@ PE 取 scale 用的 USaddr 由 ``tl.load(..., uscale=page_ptr)`` 显式给出，
     同一 kg 内 g1..g7 覆盖的是同一批通道、不同的 K quant group）；
     相邻 lane 相差 16 个通道，相邻 kg 相差 128 个通道。
 
-页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据只有
-BLOCK_N × G 个（本 example 2048 个，占页面 1/4），其余是页内 padding，
-kernel 不写，arena 作为 inout 参数保留 host 传入的原值。
-约束 (BLOCK_N/128) × G × 16 ≤ 1024，等价于 **BLOCK_N × G ≤ 8192**；
-超出这个界 forward_transform_uscale 会把页分段（S &gt; 1），本 kernel 的
-单段视图就不再成立。
+页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据是 BLOCK_N × G 个
+（本 example 2048 个，占单页的 1/4），页内 padding kernel 不写，arena 作为 inout 参数保留
+host 传入的原值。
+
+**UScale 区域是带 page 的**：16 KiB 只是硬件的页粒度（8 lane × 每 lane 1024
+BF16），不是区域上限。区域大小 = S × 16 KiB：
+
+    S = ⌈BLOCK_N × G / 8192⌉        每个 weight block 占几页
+
+    S = 1（16 KiB）⟺ BLOCK_N × G ≤ 8192
+    S = 2（32 KiB）⟺ 8192 &lt; BLOCK_N × G ≤ 16384
+    以此类推                         ← 本 example S=1
+
+本 kernel 已支持任意 S：页数由 `USCALE_PAGES` 声明并经 static_assert 校验，
+`KG_PER_PAGE` 把 kg 拆成 (页号, 页内起始格子) 展开寻址，S=1 时折叠回单页写法、
+零运行时代价。
+
+`USCALE_PAGES` 作为 constexpr 显式传入，让调用方一眼看到这个 kernel 的 UScale
+block 占几页；但它**不是自由量** —— 由 (BLOCK_N, BLOCK_K, UGROUP) 唯一决定，与
+`forward_transform_uscale` 的 padded_2K 同一公式。kernel 内的 static_assert 强校验
+两者一致：填错会让 arena 的 block stride 错位而静默读到别的 block，不报错只是数值
+全错，所以必须在编译期挡住。
+
+kernel 唯一的额外要求是 **G 整除 64**：每个 kg 占 G 个 16 行格子，只有 G | 64
+时这 G 个格子才不横跨页边界，一个 kg 才能用一条 (lane, g, row16) 的 DMA 描述完。
+BLOCK_K 与 UGROUP 都是 2 的幂时自动满足。
 
 ===============================================================================
 4. GDG 排布：act scale 用最朴素的形状
@@ -2127,7 +2430,7 @@ group 而不越界 —— boundary_check 在硬件上是**裁 tile 尺寸**而�
 5. 执行语义
 ===============================================================================
 
-BLOCK_M 固定为 1：一个 weight block 在 arena 里只有一页 WUS，而不同 token 的
+BLOCK_M 固定为 1：一个 weight block 在 arena 里只有一份 WUS 区域，而不同 token 的
 act scale 不同，所以只能逐 token 重算。对每个 M row：
 
     for each weight block:
@@ -2135,7 +2438,7 @@ act scale 不同，所以只能逐 token 重算。对每个 M row：
         LD  origin weight UScale [8, G, 16]  ─┐
         LD  act scale [1, G, 1]              ─┼→ VP 相乘 → ST 写 arena 对应区间
     然后执行该 row 的标准 blocked GEMM
-        weight 走 tl.load(..., memory_type="weight", ugroup=UGROUP,
+        weight 走 tl.load(..., memory_type=&quot;weight&quot;, ugroup=UGROUP,
                           uscale=arena_base + block_idx * PAGE)，
         tl.dot 不增加任何 scale 参数
 
@@ -2158,8 +2461,8 @@ RAW 依赖由编译器为该 slab 单独建立的同步资源保证。
 （4.7 倍回退）**，而 PE/VP 的工作量一模一样。
 
 反过来，若保持 C=16 而想让 act scale 沿 W 轴（kg,g 合并轴）平铺，reshape
-出来的视图不 compact，会被 "VP matrix C-broadcast requires a proven compact
-SrcB view" 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
+出来的视图不 compact，会被 &quot;VP matrix C-broadcast requires a proven compact
+SrcB view&quot; 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
 一起解决；BLOCK_N = 128 时循环退化成 1 次，零代价（实测与不拆完全同 cycle）。
 
 K 非 BLOCK_K 整数倍时，尾部 group 必须显式写 0（同一块 arena 会被后续 M row
@@ -2180,7 +2483,7 @@ mask。详见下面 resolve_constants 的 CONTRACT 注释。
                               LDG，按 (n_block, k_block) 顺序排纯 weight block，
                               块后不跟 UScale 页。
 * ``origin_uscale_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的只读
-                              LDG，每 block 一个物理 WUS 页。
+                              LDG，每 block S 个连续物理 WUS 页（本 example S=1）。
 * ``fused_uscale_ptr_list``   GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的 inout
                               arena，与 origin_uscale 同序、同页布局。
 * ``output_ptr``           GDG 写出，逻辑 [M, N] 的 BF16。
@@ -2191,15 +2494,19 @@ mask。详见下面 resolve_constants 的 CONTRACT 注释。
 * K 必须按 UGROUP 对齐；BLOCK_K 可含多个 UGROUP（不要求 BLOCK_K == UGROUP）。
 * 每个 core 的 N 必须按 BLOCK_N 对齐，且 BLOCK_N 必须是 128 的整数倍
   （128 = 8 lane × 16 row 是一个 super-group）。
-* BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192，保证一个 block 的全部 scale 放得进
-  单个 WUS 页（见 §3）。
+* UScale 区域按 16 KiB 分页，一个 block 占 S = ⌈BLOCK_N × G / 8192⌉ 个
+  连续 WUS 页（G = BLOCK_K / UGROUP，见 §3）。
+  BLOCK_N × G ≤ 8192 时 S=1（16 KiB），≤ 16384 时 S=2（32 KiB），以此类推。
+  S 由 constexpr `USCALE_PAGES` 显式声明，并经 static_assert 校验与几何一致。
+* G 必须整除 64，否则单个 kg 的 scale 段会横跨页边界（kernel 侧 static_assert
+  拒绝）。BLOCK_K 与 UGROUP 均为 2 的幂时自动满足。
 * activation 与 weight 必须用相同的 UGROUP。
 * arena base 与其中每一页都必须 16 KiB 对齐（PE_SETM_U 的 USaddr 以 16 KiB
   为单位）。
 * 同一块 arena 不能被多个未完成的 invocation 共享，并发或 graph replay 由调用
   方按 slot 轮转；kernel 返回时 arena 保留最后一个 M row 对应的 fused UScale。
   packed_weight 只读，因此可以跨 invocation 共享。
-"""
+&quot;&quot;&quot;
 
 import triton
 import triton.language as tl
@@ -2210,8 +2517,8 @@ def gemm_fused_uscale_separate_kernel(
     activation_fp8_ptr,           # GDG in  [M, K] fp8
     activation_scale_ptr,         # GDG in  [M, K//UGROUP_padded] bf16（算法侧原生 per-128 形状，见 §4）
     packed_weight_ptr_list,       # GDG [CORE_NUM] i64 -&gt; LDG in    纯 weight block 序列，每块 [BLOCK_N, BLOCK_K]，块后不再跟 UScale page
-    origin_uscale_ptr_list,       # GDG [CORE_NUM] i64 -&gt; LDG in    original UScale，物理 page [8, 1024] bf16 / block（同方案一）
-    fused_uscale_ptr_list,        # GDG [CORE_NUM] i64 -&gt; LDG inout fused UScale arena，物理 page [8, 1024] bf16 / block   ← 方案二新增
+    origin_uscale_ptr_list,       # GDG [CORE_NUM] i64 -&gt; LDG in    original UScale，每 block USCALE_PAGES 个物理 page [8, 1024] bf16（同方案一）
+    fused_uscale_ptr_list,        # GDG [CORE_NUM] i64 -&gt; LDG inout fused UScale arena，每 block USCALE_PAGES 个物理 page [8, 1024] bf16 ← 方案二新增
     output_ptr,                   # GDG out [M, N] bf16
     M,                            # 运行时 i32 标量；GEMM M
     K,                            # 运行时 i32 标量；GEMM K
@@ -2221,9 +2528,11 @@ def gemm_fused_uscale_separate_kernel(
     BLOCK_K: tl.constexpr,        # 编译期 K tile；必须是 UGROUP 的整数倍
     BLOCK_N: tl.constexpr,        # 编译期 N tile；weight block 的 N 维
     UGROUP: tl.constexpr,         # 编译期标量；activation/weight 沿 K 的量化粒度
+    USCALE_PAGES: tl.constexpr,   # 编译期标量；一个 UScale block 占几个 16 KiB 物理 WUS 页
+                                  #   = ceil(BLOCK_N * (BLOCK_K/UGROUP) / 8192)，见 §2/§3
     K_ALIGNED: tl.constexpr,      # 编译期标量；K 是否为 BLOCK_K 的整数倍
 ):
-    """逐 activation row 写 arena 中的 fused UScale page，再执行 block GEMM。"""
+    &quot;&quot;&quot;逐 activation row 写 arena 中的 fused UScale page，再执行 block GEMM。&quot;&quot;&quot;
     # 物理 WUS 页由 8 个 WL1 lane 组成，每个 lane 固定占 1024 个 BF16。
     # 页的真实几何 (权威来源 forward_transform_uscale):
     #   页内偏移 = lane*1024 + kg*(G*16) + g*16 + row16
@@ -2244,24 +2553,46 @@ def gemm_fused_uscale_separate_kernel(
         USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE
     )
     GROUPS_PER_WEIGHT_BLOCK: tl.constexpr = BLOCK_K // UGROUP
+    # What: 一页装几个 kg, 一个 weight block 的 UScale 占几页。
+    # Why:  16 KiB 是硬件页粒度而非区域上限; BLOCK_N*G &gt; 8192 时 arena 里每个
+    #   block 占 S 个连续页, 必须按页拆开寻址。S=1 时 KG_PER_PAGE &gt;= N_SUPER,
+    #   page 恒 0, 与原写法逐字节等价。
+    # Assumption: G 整除 64, 每个 kg 的 G 个格子不跨页 (见下面的 static_assert)。
+    KG_PER_PAGE: tl.constexpr = (
+        USCALE_ROWS_PER_PAGE_LANE // GROUPS_PER_WEIGHT_BLOCK
+    )
+    # USCALE_PAGES 由调用方在 constants 里显式声明, 让人一眼看到这个 kernel 的
+    # UScale block 占几页; 但它不是自由量 —— 由 (BLOCK_N, BLOCK_K, UGROUP) 唯一
+    # 决定, 与 forward_transform_uscale 的 padded_2K 同一公式。这里编译期强校验
+    # 两者一致: 填小了 ALIGNED_SPACE 会少算一页、block stride 错位而静默读到别的
+    # block; 填大了同样错位。两种都不报错只是数值全错, 所以必须 fail-loud。
+    tl.static_assert(
+        USCALE_PAGES == (N_SUPER_GROUPS + KG_PER_PAGE - 1) // KG_PER_PAGE,
+        &quot;USCALE_PAGES 必须等于 ceil(BLOCK_N * G / 8192), 即 UScale block 的页数&quot;,
+    )
+    USCALE_ELEMS_PER_BLOCK: tl.constexpr = (
+        USCALE_PAGES * USCALE_PAGE_BF16_ELEMS
+    )
     # 方案二: packed weight 只含 weight block，block stride 就是 weight 字节数。
     WEIGHT_BYTES_PER_BLOCK: tl.constexpr = BLOCK_N * BLOCK_K
 
     # BLOCK_M 必须为 1：不同 activation row 有不同的 scale，而一次 PE dot
     # 只能为整个 M tile 绑定同一份 weight UScale。
-    tl.static_assert(BLOCK_M == 1, "每次 dot 只能消费一行 activation scale")
+    tl.static_assert(BLOCK_M == 1, &quot;每次 dot 只能消费一行 activation scale&quot;)
     # BLOCK_K 是 PE tile 宽度，不等于 quant group。一个 weight block 可以
     # 包含多个 UGROUP；只要求 group 完整落在 block 内，并且全部 scale
     # 能放进每个 WL1 lane 的物理区域。
-    tl.static_assert(BLOCK_K % UGROUP == 0, "K block 必须包含整数个 quant group")
+    tl.static_assert(BLOCK_K % UGROUP == 0, &quot;K block 必须包含整数个 quant group&quot;)
     tl.static_assert(
         BLOCK_N % USCALE_CHANNELS_PER_SUPER == 0,
-        "输出通道必须能够均分成 128 通道的 super-group",
+        &quot;输出通道必须能够均分成 128 通道的 super-group&quot;,
     )
+    # UScale 区域可以跨多页 (见 USCALE_PAGES), 但要求 G 整除 64:
+    # 每个 kg 占 G 个 16 行格子, 只有 G | 64 时这 G 个格子才不横跨页边界,
+    # 一个 kg 才能继续用一条 (lane, g, row16) 的 DMA 描述完。
     tl.static_assert(
-        N_SUPER_GROUPS * GROUPS_PER_WEIGHT_BLOCK * USCALE_ROW_GRANULE
-        &lt;= USCALE_LANE_STRIDE_BF16,
-        "每个 WL1 lane 的 quant-group scale 必须能放入自己的 WUS 区域",
+        USCALE_ROWS_PER_PAGE_LANE % GROUPS_PER_WEIGHT_BLOCK == 0,
+        &quot;每个 K-group 段必须整除页内行数 (G | 64), 否则 kg 会横跨 WUS 页边界&quot;,
     )
 
     core_id = tl.program_id(axis=0)
@@ -2324,8 +2655,8 @@ def gemm_fused_uscale_separate_kernel(
         # Assumption: origin/arena 页与 act scale 都能用同一套
         #   (lane, g, row16) 索引表达且 stride 递减 —— 页是
         #   (1024, 16, 1), act scale 沿 g 变、由硬件在 row16 方向广播。
-        # Not covered: 仍要求 (BLOCK_N/128)*G*16 &lt;= USCALE_LANE_STRIDE_BF16
-        #   (见上面的 static_assert); 页内 padding 不写, 由 arena 的 inout
+        # Not covered: 仍要求 G 整除 64 (见上面的 static_assert), 即单个 kg 的
+        #   scale 段不横跨 WUS 页边界; 页内 padding 不写, 由 arena 的 inout
         #   语义保留原值。
         for block_idx in range(total_weight_blocks):
             n_block = block_idx // total_k_blocks
@@ -2342,27 +2673,31 @@ def gemm_fused_uscale_separate_kernel(
             #      CT 1,017 -&gt; 3,889, wall 4,968 -&gt; 23,301)。
             #   2. act scale 只随 g 变, 每个 kg 用的是同一份 [1,1,G,1],
             #      直接做 C 方向广播即可; 若改成沿 W 平铺, reshape 出来的
-            #      视图不 compact, 会被 "VP matrix C-broadcast requires a
-            #      proven compact SrcB view" 拒掉。
+            #      视图不 compact, 会被 &quot;VP matrix C-broadcast requires a
+            #      proven compact SrcB view&quot; 拒掉。
             # BLOCK_N = 128 时该循环退化成 1 次, 零代价。
             for super_group in tl.static_range(N_SUPER_GROUPS):
-                row_start = super_group * GROUPS_PER_WEIGHT_BLOCK
+                # kg 拆成 (页号, 页内起始格子); 第 1 轴取 S*8 长后
+                # 索引 = page*8 + lane, 配 stride 1024 即「跨页 + 页内 lane」。
+                page = super_group // KG_PER_PAGE
+                row_start = (super_group % KG_PER_PAGE) * GROUPS_PER_WEIGHT_BLOCK
                 original_uscale = tl.load(
                     tl.make_block_ptr(
                         base=origin_uscale_base,
-                        shape=(total_weight_blocks, USCALE_LANES,
+                        shape=(total_weight_blocks,
+                               USCALE_PAGES * USCALE_LANES,
                                USCALE_ROWS_PER_PAGE_LANE,
                                USCALE_ROW_GRANULE),
-                        strides=(USCALE_PAGE_BF16_ELEMS,
+                        strides=(USCALE_ELEMS_PER_BLOCK,
                                  USCALE_LANE_STRIDE_BF16,
                                  USCALE_ROW_GRANULE, 1),
-                        offsets=(block_idx, 0, row_start, 0),
+                        offsets=(block_idx, page * USCALE_LANES, row_start, 0),
                         block_shape=(1, USCALE_LANES,
                                      GROUPS_PER_WEIGHT_BLOCK,
                                      USCALE_ROW_GRANULE),
                         order=(3, 2, 1, 0),
                     ),
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                 )
                 # act scale ABI 就是算法侧原本的 per-128 形状 [M, K/UGROUP],
                 # 不需要按 WL1 lane 重排。读成 [1,1,G,1] 后由硬件沿 16 个
@@ -2416,20 +2751,21 @@ def gemm_fused_uscale_separate_kernel(
                 tl.store(
                     tl.make_block_ptr(
                         base=fused_uscale_base,
-                        shape=(total_weight_blocks, USCALE_LANES,
+                        shape=(total_weight_blocks,
+                               USCALE_PAGES * USCALE_LANES,
                                USCALE_ROWS_PER_PAGE_LANE,
                                USCALE_ROW_GRANULE),
-                        strides=(USCALE_PAGE_BF16_ELEMS,
+                        strides=(USCALE_ELEMS_PER_BLOCK,
                                  USCALE_LANE_STRIDE_BF16,
                                  USCALE_ROW_GRANULE, 1),
-                        offsets=(block_idx, 0, row_start, 0),
+                        offsets=(block_idx, page * USCALE_LANES, row_start, 0),
                         block_shape=(1, USCALE_LANES,
                                      GROUPS_PER_WEIGHT_BLOCK,
                                      USCALE_ROW_GRANULE),
                         order=(3, 2, 1, 0),
                     ),
                     fused_uscale,
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                 )
 
         # 当前行的 scale 写完后走标准 blocked GEMM。weight load 用 uscale=
@@ -2445,7 +2781,7 @@ def gemm_fused_uscale_separate_kernel(
                 activation = tl.load(
                     tl.advance(activation_template, (m_start, k_start)),
                     boundary_check=(0, 1),
-                    padding_option="zero",
+                    padding_option=&quot;zero&quot;,
                 )
                 weight_block_byte_offset = block_idx * WEIGHT_BYTES_PER_BLOCK
                 weight = tl.load(
@@ -2457,12 +2793,14 @@ def gemm_fused_uscale_separate_kernel(
                         block_shape=(BLOCK_N, BLOCK_K),
                         order=(1, 0),
                     ),
-                    memory_type="weight",
+                    memory_type=&quot;weight&quot;,
                     ugroup=UGROUP,
-                    # 方案二: 本 weight tile 的 UScale 来自 arena 的第 block_idx
-                    # 个 16 KiB page（page 起始指针，编译器推导 USaddr）。
+                    # 方案二: 本 weight tile 的 UScale 来自 arena 里属于该 block
+                    # 的 S 个连续 16 KiB page。这里给的是**第一页**的起始指针,
+                    # 编译器据此推导 USaddr —— 硬件只需要起点, 后续页由地址
+                    # 生成器按 tk/tc 计数器自己走过去 (VCS job 23a02ed4fcc0 实证)。
                     uscale=fused_uscale_base
-                    + block_idx * USCALE_PAGE_BF16_ELEMS,
+                    + block_idx * USCALE_ELEMS_PER_BLOCK,
                 )
                 accumulator += tl.dot(
                     activation,
@@ -2478,23 +2816,24 @@ def gemm_fused_uscale_separate_kernel(
 
 
 signature = {
-    "activation_fp8_ptr": "*fp8e4nv",
-    "activation_scale_ptr": "*bf16",
-    "packed_weight_ptr_list": "*i64",
-    "origin_uscale_ptr_list": "*i64",
-    "fused_uscale_ptr_list": "*i64",
-    "output_ptr": "*bf16",
-    "M": "i32",
-    "K": "i32",
-    "N": "i32",
+    &quot;activation_fp8_ptr&quot;: &quot;*fp8e4nv&quot;,
+    &quot;activation_scale_ptr&quot;: &quot;*bf16&quot;,
+    &quot;packed_weight_ptr_list&quot;: &quot;*i64&quot;,
+    &quot;origin_uscale_ptr_list&quot;: &quot;*i64&quot;,
+    &quot;fused_uscale_ptr_list&quot;: &quot;*i64&quot;,
+    &quot;output_ptr&quot;: &quot;*bf16&quot;,
+    &quot;M&quot;: &quot;i32&quot;,
+    &quot;K&quot;: &quot;i32&quot;,
+    &quot;N&quot;: &quot;i32&quot;,
 }
 
 constants = {
-    "CORE_NUM": 1,
-    "BLOCK_M": 1,
-    "BLOCK_K": 1024,
-    "BLOCK_N": 256,
-    "UGROUP": 128,
+    &quot;CORE_NUM&quot;: 1,
+    &quot;BLOCK_M&quot;: 1,
+    &quot;BLOCK_K&quot;: 1024,
+    &quot;BLOCK_N&quot;: 256,
+    &quot;UGROUP&quot;: 128,
+    &quot;USCALE_PAGES&quot;: 1,
     # 默认取保守的 False(带尾块 mask)。resolve_constants 只在确认 K 对齐后才
     # 把它升级成 True。
     # CONTRACT: 不是所有调用方都会执行 resolve_constants —— GEMM suite 的
@@ -2503,33 +2842,33 @@ constants = {
     # 调用。默认 True 会让这类调用方在 K 非 BLOCK_K 整数倍时静默丢掉尾块 mask,
     # arena 的无效 group 残留上一行的 fused scale。默认 False 在同样情况下只是
     # 多付 mask 的代价, 结果依然正确。
-    "K_ALIGNED": False,
+    &quot;K_ALIGNED&quot;: False,
 }
 
 
 def resolve_constants(dynamic, constants):
-    """按运行时 K 选择是否需要尾块 mask。
+    &quot;&quot;&quot;按运行时 K 选择是否需要尾块 mask。
 
     K 是 BLOCK_K 整数倍时每个 weight block 都读满 G 个 K-group, 不需要 mask;
     否则最后一个 block 有尾部 group 要置零。两条路径在编译期二选一, 对齐场景
     因此不付 mask 的代价。
 
-    CONTRACT: `dynamic` 里没有 K 时必须保守地判为"不对齐"。zeus_compile.py 从
+    CONTRACT: `dynamic` 里没有 K 时必须保守地判为&quot;不对齐&quot;。zeus_compile.py 从
     环境变量 ZEUS_SIM_DYNAMIC 取 dynamic, GEMM suite 的 Phase 1 在不设该变量的
     情况下先编译一份通用 IR, 再把它连同各 case 的 --dynamic 交给 sim_test.py。
     此时若拿 BLOCK_K 当 K 的缺省值, 就会算出 K_ALIGNED=True 并静默丢掉 mask,
     而那份 IR 随后会被 K 非 BLOCK_K 整数倍的 case 使用 —— arena 的无效 group
     会残留上一行的 fused scale。缺失信息必须落到带 mask 的安全侧。
-    """
-    block_k = int(constants["BLOCK_K"])
-    k_size = dynamic.get("K")
-    constants["K_ALIGNED"] = (
+    &quot;&quot;&quot;
+    block_k = int(constants[&quot;BLOCK_K&quot;])
+    k_size = dynamic.get(&quot;K&quot;)
+    constants[&quot;K_ALIGNED&quot;] = (
         k_size is not None and int(k_size) % block_k == 0
     )
     return constants
 
 
-if __name__ == "__main__":
+if __name__ == &quot;__main__&quot;:
     from kernel_to_linalg import kernel_to_linalg
 
     kernel_to_linalg(
