@@ -924,7 +924,7 @@
       </div>
       <div class="flow-row">
         <div class="flow-tag">WUS 页</div>
-        <div class="flow-body">一个物理页 = <b>8 个 WL1 lane × 每 lane 1024 个 BF16 = 16 KiB</b>。8 和 1024 都是硬件固定值。一个 weight block 的全部 scale 必须放得进一个页（超了会被分段，见第三节的约束）。</div>
+        <div class="flow-body">一个物理页 = <b>8 个 WL1 lane × 每 lane 1024 个 BF16 = 16 KiB</b>。8 和 1024 都是硬件固定值。一个 weight block 的 scale 如果放不下一页，<code>forward_transform_uscale</code> 会自动续到下一页（32 KiB、48 KiB…），<b>硬件本身支持多页</b>；只是当前参考 kernel 还只实现了单页视图，见第三节。</div>
       </div>
       <div class="flow-row">
         <div class="flow-tag">位置<br>自由度</div>
@@ -993,8 +993,8 @@
 
     <p class="lede">页容量 8 × 1024 = 8192 个 BF16 是硬件固定的。本例逻辑有效数据是 <code>BLOCK_N × G = 2048</code> 个，占页面 1/4，其余是页内 padding —— <b>kernel 不写 padding</b>，它保留调用方传入的原值。</p>
 
-    <div class="callout">
-      <b>单页约束：</b><code>(BLOCK_N/128) × G × 16 ≤ 1024</code>，等价于 <b><code>BLOCK_N × G ≤ 8192</code></b>。超过这个界，<code>forward_transform_uscale</code> 会把数据分成多个 16 KiB 段（S &gt; 1），当前 kernel 的单页视图就不再成立。
+    <div class="callout ok">
+      <b>当前参考 kernel 只覆盖单页的情况：</b><code>(BLOCK_N/128) × G × 16 ≤ 1024</code>，等价于 <b><code>BLOCK_N × G ≤ 8192</code></b>。超过这个界时，<code>forward_transform_uscale</code> 会把一个 block 的 scale 续写到第二、第三个 16 KiB 页（32 KiB、48 KiB…）。<b>这不是硬件上限，多页在硬件和 layout 变换上都是支持的</b> —— 只是参考 kernel 目前按单页写死了页内视图。<b>扩展到多页即将支持</b>，改动集中在 kernel 里的几个页相关常量（页数、页 stride、写回时的页循环），ABI 和上面的编址公式都不变。需要更大 <code>BLOCK_N × G</code> 时请先联系编译器团队。
     </div>
   </section>
   <section>
@@ -1361,7 +1361,7 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
     <ul class="rule-list">
       <li class="hard"><b><code>BLOCK_M</code> 必须为 1</b>不同 activation row 的 scale 不同，而一个 weight block 只有一份 fused UScale 页。要支持 <code>BLOCK_M &gt; 1</code> 需要每行一份页，属于后续工作。</li>
       <li class="hard"><b><code>BLOCK_N</code> 必须是 128 的整数倍</b>128 = 8 lane × 16 row 是一个完整的 super-group。不是整数倍时页内编址无法闭合。</li>
-      <li class="hard"><b><code>BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192</code></b>保证一个 block 的全部 scale 放得进单个 16 KiB 页。超过会被 <code>forward_transform_uscale</code> 分段，当前 kernel 的单页视图不再成立。</li>
+      <li><b><code>BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192</code>（当前 kernel 的范围，非硬件上限）</b>这个界保证一个 block 的 scale 正好落在单个 16 KiB 页内。超过时 layout 变换会自动续到多页（32 KiB 等），硬件也支持，<b>只是参考 kernel 暂时按单页实现</b>；多页版本即将提供，改的是 kernel 内几个页相关常量，不涉及 ABI。</li>
       <li class="hard"><b>UScale 存放位置必须 16 KiB 对齐</b><code>USaddr</code> 以 16 KiB 页为单位。方案二的 arena 基址和每一页都要对齐；仿真框架的 weight DRAM 分配器已相应改为 16 KiB 对齐。</li>
       <li><b><code>K</code> 必须按 <code>UGROUP</code> 对齐</b><code>BLOCK_K</code> 可以包含多个 <code>UGROUP</code>，不要求 <code>BLOCK_K == UGROUP</code>，但 quant group 必须完整落在 block 内。</li>
       <li><b>每个 core 的 <code>N</code> 必须按 <code>BLOCK_N</code> 对齐</b>多核时 N 先切给 core，再按 <code>BLOCK_N</code> 分块。</li>
@@ -1473,7 +1473,7 @@ accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code>
     <ul class="rule-list">
       <li><b>BLOCK_M &gt; 1</b>需要每个 activation row 一份 WUS 页，涉及 arena 容量与 USaddr 的按行推导。</li>
       <li><b>多核 arena 切分</b>参考 kernel 是 <code>CORE_NUM=1</code>。多核时每个 core 需要各自的 arena 区间，地址表按 core 索引，尚未验证。</li>
-      <li><b>单页放不下的大 block</b><code>BLOCK_N × G &gt; 8192</code> 时 <code>forward_transform_uscale</code> 会分段，kernel 的单页视图需要改成分段视图。</li>
+      <li><b>多页 UScale（即将支持）</b><code>BLOCK_N × G &gt; 8192</code> 时一个 block 的 scale 会占 32 KiB 及以上、跨多个物理页。硬件与 layout 变换都已支持，缺的只是参考 kernel 里的页循环 —— 改动集中在几个页相关常量，ABI 不变。</li>
       <li><b>INT4 weight</b>当前两个 example 都是 FP8。INT4 的 K 打包规则与 WBS 配置不同，需要单独验证。</li>
       <li><b>host 侧 arena 生命周期</b>slot 轮转、并发保护、graph replay 的具体策略由调用方决定，编译器只保证 kernel 内部的 store→PE 依赖。</li>
     </ul>
