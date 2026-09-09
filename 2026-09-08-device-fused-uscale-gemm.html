@@ -1,0 +1,2578 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device-Fused UScale GEMM</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F2F5F6;
+    --surface: #FFFFFF;
+    --surface-2: #E8EDEF;
+    --line: #CFD9DD;
+    --ink: #101619;
+    --ink-2: #46565D;
+    --muted: #6B7C84;
+    --weight: #0E6A87;
+    --weight-bg: #D6E9F0;
+    --scale: #9A6E14;
+    --scale-bg: #F7EBCF;
+    --origin: #6A4C93;
+    --origin-bg: #E7E0F2;
+    --good: #1F6B4C;
+    --good-bg: #D4EADD;
+    --risk: #A8442A;
+    --risk-bg: #F3DAD1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0D1316; --surface:#151E22; --surface-2:#1D282D; --line:#2C3B42;
+      --ink:#E8F0F3; --ink-2:#A9BCC4; --muted:#7E939C;
+      --weight:#58BEDC; --weight-bg:#113039; --scale:#E0B45C; --scale-bg:#3A2E14;
+      --origin:#B49BE0; --origin-bg:#2A2140; --good:#63C795; --good-bg:#12331F;
+      --risk:#EC8760; --risk-bg:#402016;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 46px 26px 76px;
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+  }
+
+  .eyebrow {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0 0 14px;
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 600;
+    letter-spacing: -.025em;
+    line-height: 1.14;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 72ch;
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 17px;
+  }
+
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  h3 {
+    margin: 26px 0 12px;
+    color: var(--ink);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+  h3:first-of-type { margin-top: 18px; }
+
+  h2 {
+    margin: 0 0 17px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .panel {
+    padding: 21px 22px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  .contract {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 15px;
+    align-items: start;
+    border-left: 4px solid var(--good);
+  }
+
+  .contract-mark {
+    display: grid;
+    width: 31px;
+    height: 31px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--good-bg);
+    color: var(--good);
+    font-weight: 700;
+  }
+
+  .contract p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .contract b { color: var(--ink); font-weight: 600; }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  @media (max-width: 860px) {
+    .compare { grid-template-columns: 1fr; }
+  }
+
+  .case {
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  .case.good { border-top: 4px solid var(--good); }
+  .case.risk { border-top: 4px solid var(--risk); }
+
+  .case-head {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 17px;
+  }
+
+  .case-title { margin: 0; font-size: 17px; font-weight: 600; }
+  .case-sub { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+
+  .tag {
+    flex: none;
+    padding: 4px 8px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .tag.good { border-color: var(--good); background: var(--good-bg); color: var(--good); }
+  .tag.risk { border-color: var(--risk); background: var(--risk-bg); color: var(--risk); }
+
+  .dram {
+    padding: 15px;
+    border: 1px dashed var(--line);
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .dram-label {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .combined-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .stack-continuation {
+    display: flex;
+    min-height: 25px;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .06em;
+  }
+
+  .combined {
+    display: grid;
+    grid-template-columns: minmax(130px, 4fr) minmax(68px, 1fr);
+    min-height: 50px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  .mem {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .mem.weight { background: var(--weight-bg); color: var(--weight); }
+  .mem.scale { border-left: 1px solid var(--scale); background: var(--scale-bg); color: var(--scale); }
+  .mem.origin { background: var(--origin-bg); color: var(--origin); }
+
+  .near {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 12px 1px 0;
+    color: var(--good);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .near::before { content: ""; width: 36px; border-top: 2px solid var(--good); }
+
+  .separated { display: flex; flex-direction: column; gap: 11px; }
+  .separated-row { display: grid; grid-template-columns: repeat(3, 1fr) 28px; gap: 6px; }
+  .separated-row .mem { min-height: 48px; border: 1px solid; border-radius: 3px; }
+  .separated-row .weight { border-color: var(--weight); }
+  .separated-row .scale { border-color: var(--scale); }
+
+  .inline-continuation {
+    display: grid;
+    min-height: 48px;
+    place-items: center;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .distance {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--risk);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+  }
+
+  .distance::before,
+  .distance::after { content: ""; flex: 1; border-top: 1px dashed var(--risk); }
+
+  .case-note { margin: 15px 0 0; color: var(--ink-2); font-size: 13.5px; }
+  .case-note b { color: var(--ink); font-weight: 600; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 13px; height: 13px; border: 1px solid; border-radius: 2px; }
+
+  .update-board {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .update-head,
+  .update-row {
+    display: grid;
+    grid-template-columns: minmax(150px, .9fr) minmax(150px, .72fr) minmax(260px, 1.45fr);
+    gap: 13px;
+    align-items: stretch;
+  }
+
+  .update-head div {
+    padding: 0 12px 7px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .origin-block,
+  .act-block {
+    display: flex;
+    min-height: 60px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 12px;
+    border: 1px solid;
+    border-radius: 3px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .origin-block { border-color: var(--origin); background: var(--origin-bg); color: var(--origin); }
+
+  .act-block {
+    position: relative;
+    border-color: var(--weight);
+    background: var(--weight-bg);
+    color: var(--weight);
+  }
+
+  .act-block::before {
+    content: "×";
+    position: absolute;
+    left: -22px;
+    top: 50%;
+    color: var(--muted);
+    font-size: 20px;
+    transform: translateY(-50%);
+  }
+
+  .act-block::after {
+    display: none;
+  }
+
+  .target-combined {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(125px, 3fr) minmax(90px, 1.15fr);
+    min-height: 60px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  .target-combined::before {
+    content: "";
+    position: absolute;
+    left: -13px;
+    top: 8px;
+    z-index: 3;
+    width: calc(72% + 7px);
+    border-top: 2px solid var(--good);
+  }
+
+  .target-combined::after {
+    content: "▶";
+    position: absolute;
+    left: calc(72% - 7px);
+    top: -2px;
+    z-index: 3;
+    color: var(--good);
+    font-size: 15px;
+  }
+
+  .target-combined .mem.scale {
+    outline: 2px solid var(--good);
+    outline-offset: -2px;
+    background: var(--good-bg);
+    color: var(--good);
+  }
+
+  .update-note {
+    margin: 15px 0 0;
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+
+  .update-note b { color: var(--ink); font-weight: 600; }
+
+  .update-continuation {
+    display: grid;
+    grid-template-columns: minmax(150px, .9fr) minmax(150px, .72fr) minmax(260px, 1.45fr);
+    gap: 13px;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  @media (max-width: 760px) {
+    .update-head { display: none; }
+    .update-row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: var(--surface-2);
+    }
+    .act-block::before {
+      content: "×";
+      left: 50%;
+      top: -19px;
+      transform: translateX(-50%);
+    }
+    .act-block::after {
+      display: block;
+      content: "▼";
+      left: 50%;
+      right: auto;
+      top: auto;
+      bottom: -22px;
+      transform: translateX(-50%);
+    }
+    .update-continuation {
+      grid-template-columns: 1fr;
+    }
+    .update-continuation span:not(:first-child) { display: none; }
+  }
+
+  code {
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .91em;
+  }
+
+  .formula {
+    margin: 17px 0 0;
+    padding: 13px 15px;
+    border-left: 3px solid var(--scale);
+    background: var(--scale-bg);
+    color: var(--ink-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+  }
+
+  .scope {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  .scope-row {
+    display: grid;
+    grid-template-columns: 150px 1fr 1fr;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .scope-row:last-child { border-bottom: none; }
+  .scope-row > div { padding: 13px 15px; }
+  .scope-row > div + div { border-left: 1px solid var(--line); }
+  .scope-head { background: var(--surface-2); font-size: 12px; font-weight: 600; }
+  .scope-key { background: var(--surface-2); color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .scope-value { background: var(--surface); color: var(--ink-2); font-size: 13px; }
+  .scope-value b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 680px) {
+    .scope-head { display: none; }
+    .scope-row { grid-template-columns: 1fr; }
+    .scope-row > div { padding: 11px 12px; font-size: 12px; }
+    .scope-row > div + div { border-top: 1px dashed var(--line); border-left: none; }
+    .scope-schemes .scope-value:nth-child(2)::before,
+    .scope-schemes .scope-value:nth-child(3)::before {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: .06em;
+    }
+    .scope-schemes .scope-value:nth-child(2)::before { content: "方案一"; }
+    .scope-schemes .scope-value:nth-child(3)::before { content: "方案二"; }
+  }
+
+  .boundary {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: start;
+    border-left: 4px solid var(--risk);
+  }
+
+  .boundary-mark {
+    color: var(--risk);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .boundary p { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+  .boundary b { color: var(--ink); font-weight: 600; }
+
+  .ask {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--line);
+  }
+
+  @media (max-width: 760px) { .ask { grid-template-columns: 1fr; } }
+
+  .ask-item { padding: 17px 18px; background: var(--surface); }
+  .ask-n { margin: 0 0 7px; color: var(--good); font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; }
+  .ask-t { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+  .ask-d { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+
+  .status-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 15px;
+  }
+
+  .status-pill {
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+
+  .status-pill.on { border-color: var(--good); background: var(--good-bg); color: var(--good); }
+  .status-pill.off { border-color: var(--risk); background: var(--risk-bg); color: var(--risk); }
+
+  .evidence-lede {
+    margin: 0 0 17px;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 0 0 17px;
+  }
+
+  @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .metric-grid { grid-template-columns: 1fr; } }
+
+  .metric {
+    min-width: 0;
+    padding: 13px 14px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .metric.primary { border-color: var(--good); background: var(--good-bg); }
+  .metric-label { margin: 0; color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 10px; text-transform: uppercase; }
+  .metric-value { margin: 4px 0 2px; color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 22px; font-weight: 600; line-height: 1.2; }
+  .metric.primary .metric-value { color: var(--good); }
+  .metric-detail { margin: 0; color: var(--ink-2); font-size: 11.5px; }
+
+  .profile-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+    gap: 16px;
+  }
+
+  @media (max-width: 780px) { .profile-layout { grid-template-columns: 1fr; } }
+
+  .profile-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .profile-table th,
+  .profile-table td {
+    padding: 8px 9px;
+    border-bottom: 1px solid var(--line);
+    text-align: right;
+  }
+
+  .profile-table th:first-child,
+  .profile-table td:first-child { text-align: left; }
+  .profile-table th { color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .profile-table td:first-child { color: var(--ink); font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+
+  .profile-note {
+    padding: 14px 15px;
+    border-left: 3px solid var(--weight);
+    background: var(--weight-bg);
+    color: var(--ink-2);
+    font-size: 12.5px;
+  }
+
+  .profile-note p { margin: 0 0 10px; }
+  .profile-note p:last-child { margin-bottom: 0; }
+  .profile-note b { color: var(--ink); }
+  .profile-note code { white-space: nowrap; }
+
+  .source-note {
+    margin: 0 0 14px;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+
+  .source-details {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface-2);
+  }
+
+  .source-details summary {
+    padding: 11px 14px;
+    cursor: pointer;
+    color: var(--ink);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .source-code {
+    max-height: 720px;
+    margin: 0;
+    padding: 17px;
+    overflow: auto;
+    border-top: 1px solid var(--line);
+    background: #0D171B;
+    color: #DCE8EC;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    tab-size: 4;
+    white-space: pre;
+  }
+
+  .source-code code {
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  .foot {
+    margin: -9px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .foot a { color: inherit; }
+
+  @media print {
+    body { background: #fff; }
+    .wrap { max-width: none; padding: 24px; gap: 24px; }
+    .case, .panel, .scope, .ask { break-inside: avoid; }
+  }
+
+  /* ---- 新增：特性说明用的图表组件 ---- */
+  .flow {
+    display: grid;
+    gap: 14px;
+    margin: 18px 0 6px;
+  }
+  .flow-row {
+    display: grid;
+    grid-template-columns: 128px 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .flow-tag {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font: 600 12px/1.3 "IBM Plex Mono", monospace;
+    color: var(--ink-2);
+    text-align: center;
+    padding: 8px 6px;
+  }
+  .flow-body {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+  }
+  .flow-body b { color: var(--ink); }
+  .flow.bad .flow-tag { background: var(--risk-bg); border-color: var(--risk); color: var(--risk); }
+  .flow.good .flow-tag { background: var(--good-bg); border-color: var(--good); color: var(--good); }
+
+  .page-map {
+    display: grid;
+    grid-template-columns: 74px repeat(2, 1fr) 92px;
+    gap: 4px;
+    margin: 16px 0 8px;
+    font: 500 11.5px/1.35 "IBM Plex Mono", monospace;
+  }
+  .page-map .pm-h {
+    background: transparent;
+    color: var(--muted);
+    text-align: center;
+    padding: 4px 2px;
+    font-weight: 600;
+  }
+  .page-map .pm-lane {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 6px;
+    color: var(--ink-2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .page-map .pm-cell {
+    border-radius: 6px;
+    padding: 7px 6px;
+    text-align: center;
+    border: 1px solid transparent;
+  }
+  .page-map .pm-kg0 { background: var(--weight-bg); color: var(--weight); border-color: var(--weight); }
+  .page-map .pm-kg1 { background: var(--scale-bg); color: var(--scale); border-color: var(--scale); }
+  .page-map .pm-pad {
+    background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 5px, var(--surface) 5px, var(--surface) 10px);
+    border: 1px dashed var(--line);
+    color: var(--muted);
+  }
+
+  .abi-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 6px;
+    font-size: 13px;
+  }
+  .abi-table th, .abi-table td {
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .abi-table th {
+    background: var(--surface-2);
+    font-weight: 600;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .abi-table td code { font-size: 12px; }
+  .abi-table tr td:first-child { white-space: nowrap; }
+  .rw-in { color: var(--weight); font-weight: 600; }
+  .rw-inout { color: var(--risk); font-weight: 600; }
+  .rw-out { color: var(--good); font-weight: 600; }
+
+  .rule-list { display: grid; gap: 9px; margin: 14px 0 4px; padding: 0; list-style: none; }
+  .rule-list li {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--weight);
+    border-radius: 8px;
+    padding: 10px 13px;
+    font-size: 13.5px;
+  }
+  .rule-list li.hard { border-left-color: var(--risk); }
+  .rule-list li b { display: block; margin-bottom: 2px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0 4px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } .flow-row { grid-template-columns: 1fr; } .page-map { grid-template-columns: 60px 1fr 1fr 70px; } }
+  .col-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .col-card h4 { margin: 0 0 8px; font-size: 14px; }
+  .col-card.s1 { border-top: 3px solid var(--scale); }
+  .col-card.s2 { border-top: 3px solid var(--weight); }
+  .col-card p { margin: 6px 0; font-size: 13px; }
+
+  .callout {
+    background: var(--risk-bg);
+    border: 1px solid var(--risk);
+    border-radius: 10px;
+    padding: 13px 16px;
+    margin: 16px 0 6px;
+    font-size: 13.5px;
+  }
+  .callout b { color: var(--risk); }
+  .callout.ok { background: var(--good-bg); border-color: var(--good); }
+  .callout.ok b { color: var(--good); }
+
+  .case-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .case-split { grid-template-columns: 1fr; gap: 16px; } }
+  .case-split .rule-list li { font-size: 13px; }
+  .case-split .metric-detail code { font-size: 11px; word-break: break-all; }
+
+  /* ---- 更新关系图的目标块与次要文字 ---- */
+  .target-block {
+    position: relative;
+    display: flex;
+    min-height: 60px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 12px;
+    border: 2px solid var(--good);
+    border-radius: 3px;
+    background: var(--good-bg);
+    color: var(--good);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .target-block::before {
+    content: "=";
+    position: absolute;
+    left: -20px;
+    top: 50%;
+    color: var(--muted);
+    font-size: 20px;
+    font-weight: 400;
+    transform: translateY(-50%);
+  }
+  .origin-block, .act-block { line-height: 1.5; }
+  .dim { display: block; font-weight: 400; opacity: .72; font-size: 10.5px; margin-top: 2px; }
+  @media (max-width: 760px) {
+    /* 与既有断点一致: update-row 变单列时, 等号从左侧移到上方 */
+    .target-block::before { left: 50%; top: -19px; transform: translateX(-50%); }
+  }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Zeus V3 编译器 · 新特性说明 · 面向算法与 Kernel 团队</p>
+    <h1>Device-Fused UScale：在 Zeus 上跑 activation 与 weight 双侧 per-group 量化的 GEMM</h1>
+    <p class="lede">Zeus 的 PE 只有<b>一条</b> scale 通路，且固定挂在 weight 侧。这意味着 activation 的 per-group 量化 scale 在硬件上<b>没有地方可放</b>。本次编译团队打通的能力，是让 kernel 在<b>设备侧</b>把 activation scale 乘进 weight 的 UScale，再交给 PE —— 不需要 host 预处理，不需要额外的反量化 pass，<code>tl.dot</code> 本身也不改。</p>
+    <p class="lede">现在有<b>两种放置方案</b>可选，数值语义完全一致，区别只在 fused UScale 存在哪里、以及 weight slab 是否需要可写。两个参考 kernel 都已合入 master，可以直接拿去改。</p>
+  </header>
+
+  <section class="panel contract">
+    <span class="contract-mark">✓</span>
+    <p><b>一句话总结：</b>准备好 <code>origin_uscale</code>（weight 自己的 per-channel scale，已按 WUS 页格式排好）和 <code>activation_scale</code>（算法侧原生的 <code>[M, K/UGROUP]</code>），kernel 会在每个 M row 开始前把两者相乘写进 WUS 页，然后照常做 blocked GEMM。PE 每吃满一个 <code>UGROUP</code> 就自动换一次 scale。</p>
+  </section>
+
+  <section>
+    <h2>一、这个特性解决什么问题</h2>
+
+    <p class="lede">FP8 / INT8 GEMM 里，activation 和 weight 通常都沿 K 方向做 per-group 量化：每 <code>UGROUP</code> 个 K 共享一个 scale。反量化后的真实结果是</p>
+
+    <p class="formula">out[m,n] = Σ<sub>g</sub> Σ<sub>k∈g</sub> ( act<sub>q</sub>[m,k] · act_scale[m,g] ) · ( w<sub>q</sub>[n,k] · w_uscale[n,g] )</p>
+
+    <p class="lede">两个 scale 在同一个 group 内都是常数，可以提到求和外面：</p>
+
+    <p class="formula">out[m,n] = Σ<sub>g</sub> <b>( act_scale[m,g] · w_uscale[n,g] )</b> · Σ<sub>k∈g</sub> act<sub>q</sub>[m,k] · w<sub>q</sub>[n,k]</p>
+
+    <p class="lede">括号里那一项就是 <b>fused UScale</b>。它只依赖 <code>(m, n, g)</code>，与 K 无关，因此可以在 GEMM 之前算好，PE 照常做纯整数/FP8 的 MAC。</p>
+
+    <h3>为什么不能让 activation 自己带 scale</h3>
+
+    <div class="flow bad">
+      <div class="flow-row">
+        <div class="flow-tag">activation<br>侧</div>
+        <div class="flow-body"><b>硬件上没有 scale 通路。</b>GDG → L2 → PE 的 activation 数据路径是纯搬运，PE 读进来直接进 MAC 阵列，中间没有任何逐 group 乘系数的硬件。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">weight<br>侧</div>
+        <div class="flow-body"><b>有且只有一条 WUS 通路。</b>weight 从 weight DRAM 经 WL1 进 PE，WL1 上挂着 UScale 单元，每消费满 <code>UGroup</code> 个 K 就换用下一个 scale，按<b>输出通道 n</b> 索引。这条通路本来是给 weight 的 per-channel 量化用的。</div>
+      </div>
+    </div>
+
+    <div class="callout ok">
+      <b>所以做法只能是：</b>把 activation 的 scale 提前乘进 weight 的 UScale，让这条唯一的通路同时承载两侧的量化系数。这就是 fused UScale 的全部含义 —— 不是新硬件，而是<b>把两个 scale 合并到硬件已有的那一条通路上</b>。
+    </div>
+
+    <p class="lede">代价是：fused UScale 依赖 <code>m</code>，而原本的 weight UScale 不依赖。所以每处理一个 activation row，都要重算一遍整块 weight 的 fused UScale。这也是当前 <code>BLOCK_M</code> 固定为 1 的原因。</p>
+  </section>
+
+  <section>
+    <h2>二、硬件给了什么</h2>
+
+    <p class="lede">整条链路上，跟这个特性直接相关的硬件事实只有下面几条。它们决定了 ABI 长什么样，也决定了哪些写法会静默算错。</p>
+
+    <div class="flow good">
+      <div class="flow-row">
+        <div class="flow-tag">PE_SETM_U</div>
+        <div class="flow-body">PE 的 scale 配置指令，带 <code>UEN</code>（开关）、<code>UGroup</code>（每多少个 K 换一次 scale）、<code>USaddr</code>（scale 在 weight DRAM 里的位置）。kernel 作者<b>不直接写这条指令</b>，编译器从 <code>tl.load(..., ugroup=, uscale=)</code> 推导。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">USaddr<br>粒度</div>
+        <div class="flow-body"><code>USaddr</code> 是<b>相对本 core weight DRAM 基址的 16 KiB 页号</b>，不是字节地址。RTL 实际只取寄存器低 20 位，寻址范围 16 GiB。所以 UScale 的存放位置必须<b>按 16 KiB 对齐</b>。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">WUS 页</div>
+        <div class="flow-body">一个物理页 = <b>8 个 WL1 lane × 每 lane 1024 个 BF16 = 16 KiB</b>。8 和 1024 都是硬件固定值。一个 weight block 的全部 scale 必须放得进一个页（超了会被分段，见第三节的约束）。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">位置<br>自由度</div>
+        <div class="flow-body">RTL 里 UScale 的读地址<b>只由 <code>USaddr</code> 推导</b>，与 weight 自己的地址无关 —— 硬件<b>不要求</b> UScale 紧邻 weight。这一条是方案二能成立的基础。</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>三、WUS 页布局：唯一权威的通道编址</h2>
+
+    <div class="callout">
+      <b>这一节是整个特性里最容易写错的地方。</b>页内偏移与输出通道号的换算不是"平均切 8 份"，而是<b>固定 16 行粒度 + 128 通道 super-group</b> 的两级结构。写错了不会崩，只会逐通道乱序，输出量级看着正常、cos_sim 掉到 0.001，几乎不可能从症状反推回来。
+    </div>
+
+    <h3>记号</h3>
+    <div class="scope">
+      <div class="scope-row scope-head"><div>符号</div><div>含义</div><div>取值</div></div>
+      <div class="scope-row"><div class="scope-key">G</div><div>每个 weight block 含多少个 K quant group</div><div class="scope-value">BLOCK_K / UGROUP</div></div>
+      <div class="scope-row"><div class="scope-key">lane</div><div>WL1 lane 下标</div><div class="scope-value">0 … 7（硬件固定 8 条）</div></div>
+      <div class="scope-row"><div class="scope-key">row</div><div>lane 内的行；<b>16 是硬件固定的行粒度</b></div><div class="scope-value">0 … 15</div></div>
+      <div class="scope-row"><div class="scope-key">kg</div><div>输出通道的 128 通道 super-group 下标</div><div class="scope-value">0 … BLOCK_N/128 − 1</div></div>
+    </div>
+
+    <h3>两条换算公式</h3>
+
+    <p class="formula">页内偏移(lane, kg, g, row) = lane·1024 + kg·(G·16) + g·16 + row</p>
+    <p class="formula">输出通道 n = kg·128 + lane·16 + row</p>
+
+    <p class="lede">权威定义在 <code>triton_shared/sim_check/sim_framework/weight/transform.py</code> 的 <code>forward_transform_uscale</code>。它把逻辑 <code>[N, G]</code> 先 reshape 成 <code>[kg, lane, row, g]</code>，再转置成 <code>[lane, kg, g, row]</code> 铺进每个 lane —— 上面两条公式就是这个变换的直接结果。任何与它不一致的推导都是错的。</p>
+
+    <div class="callout">
+      <b>不要写成 <code>n = lane · (BLOCK_N/8) + row</code>。</b>这个式子只在 <code>BLOCK_N = 128</code> 时碰巧成立：此时 <code>kg</code> 只有一个，且 <code>BLOCK_N/8</code> 恰好等于硬件粒度 16，两式重合。<code>BLOCK_N</code> 一旦变大就会静默算错。参考 kernel 特意取 <code>BLOCK_N = 256</code>（两个 super-group），让通用路径真的被跑到。
+    </div>
+
+    <h3>页内实际长什么样（BLOCK_N=256, BLOCK_K=1024, UGROUP=128 → G=8, kg ∈ {0,1}）</h3>
+
+    <div class="page-map">
+      <div class="pm-h"></div>
+      <div class="pm-h">kg=0 · 128 个 BF16<br><span style="font-weight:400">g0 g1 … g7，每格 16 通道</span></div>
+      <div class="pm-h">kg=1 · 128 个 BF16<br><span style="font-weight:400">g0 g1 … g7，每格 16 通道</span></div>
+      <div class="pm-h">页内 padding</div>
+
+      <div class="pm-lane">lane 0</div>
+      <div class="pm-cell pm-kg0">n = 0 … 15</div>
+      <div class="pm-cell pm-kg1">n = 128 … 143</div>
+      <div class="pm-cell pm-pad">768 个 BF16</div>
+
+      <div class="pm-lane">lane 1</div>
+      <div class="pm-cell pm-kg0">n = 16 … 31</div>
+      <div class="pm-cell pm-kg1">n = 144 … 159</div>
+      <div class="pm-cell pm-pad">768</div>
+
+      <div class="pm-lane">⋮</div>
+      <div class="pm-cell pm-kg0">⋮</div>
+      <div class="pm-cell pm-kg1">⋮</div>
+      <div class="pm-cell pm-pad">⋮</div>
+
+      <div class="pm-lane">lane 7</div>
+      <div class="pm-cell pm-kg0">n = 112 … 127</div>
+      <div class="pm-cell pm-kg1">n = 240 … 255</div>
+      <div class="pm-cell pm-pad">768</div>
+    </div>
+
+    <p class="lede">每个格子里是 <b>16 个连续输出通道</b>。同一个 <code>kg</code> 内，<code>g0 … g7</code> 覆盖的是<b>同一批通道的不同 K quant group</b>；相邻 lane 相差 16 个通道；相邻 <code>kg</code> 相差 128 个通道。</p>
+
+    <p class="lede">页容量 8 × 1024 = 8192 个 BF16 是硬件固定的。本例逻辑有效数据是 <code>BLOCK_N × G = 2048</code> 个，占页面 1/4，其余是页内 padding —— <b>kernel 不写 padding</b>，它保留调用方传入的原值。</p>
+
+    <div class="callout">
+      <b>单页约束：</b><code>(BLOCK_N/128) × G × 16 ≤ 1024</code>，等价于 <b><code>BLOCK_N × G ≤ 8192</code></b>。超过这个界，<code>forward_transform_uscale</code> 会把数据分成多个 16 KiB 段（S &gt; 1），当前 kernel 的单页视图就不再成立。
+    </div>
+  </section>
+  <section>
+    <h2>四、把 fused UScale 放在哪里</h2>
+
+    <p class="lede">fused UScale 必须落在 weight DRAM 里、并且让 <code>USaddr</code> 指得到。放的位置有两种做法，数值完全等价。</p>
+
+    <div class="callout ok">
+      <b>默认请用方案一。</b>Zeus 的 weight 与 UScale 都在 3D DRAM 的近存结构里，PE 做一次 <code>PE_CONV</code> 会先后取这个 block 的 weight 和它的 UScale。<b>两者物理上离得越近，越容易命中同一片近存区域，避免来回切换带来的 cache miss。</b>方案一把每个 block 的 UScale 直接排在它自己的 weight 后面，天然满足这个局部性；方案二让 PE 每个 block 都要在两块相距较远的区域之间跳。除非确实需要 weight 保持只读，否则不要用方案二。
+    </div>
+
+    <h3>先看 fused UScale 是怎么算出来的</h3>
+
+    <p class="lede">每个 weight block 有一份自己的 weight UScale（<code>[BLOCK_N, G]</code>，per 输出通道 per K-group）。它乘上当前 activation row 的 scale（<code>[G]</code>，沿输出通道广播），得到这个 block 的 fused UScale。<b>每换一个 M row，所有 block 都要重算一遍。</b></p>
+
+    <div class="update-board">
+      <div class="update-head">
+        <div>weight uscale · 只读</div>
+        <div>act scale · 每行一份</div>
+        <div>fused uscale · 每行重算</div>
+      </div>
+
+      <div class="update-row">
+        <div class="origin-block">block 0 weight uscale<span class="dim">[BLOCK_N, G]</span></div>
+        <div class="act-block">act scale[m, :]<span class="dim">[G]</span></div>
+        <div class="target-block">block 0 fused uscale<span class="dim">[BLOCK_N, G] → PE 读这一份</span></div>
+      </div>
+
+      <div class="update-row">
+        <div class="origin-block">block 1 weight uscale<span class="dim">[BLOCK_N, G]</span></div>
+        <div class="act-block">act scale[m, :]<span class="dim">同一份，复用</span></div>
+        <div class="target-block">block 1 fused uscale<span class="dim">[BLOCK_N, G] → PE 读这一份</span></div>
+      </div>
+
+      <div class="update-continuation">
+        <div>⋮</div><div>⋮</div><div>⋮</div>
+      </div>
+    </div>
+
+    <p class="update-note"><b>kernel 侧就是一条 VP。</b>整页 <code>[8, G, 16]</code> 的 weight uscale 乘上 <code>[1, 1, G, 1]</code> 的 act scale，由硬件沿 16 个连续通道做 C 方向广播。activation 侧没有 scale 通路，所以这一步必须发生在进 PE 之前 —— 这就是 “device-fused” 的含义。</p>
+
+    <div class="legend">
+      <span class="legend-item"><span class="swatch" style="border-color:var(--origin);background:var(--origin-bg)"></span>weight 自己的 uscale（乘法输入，只读）</span>
+      <span class="legend-item"><span class="swatch" style="border-color:var(--weight);background:var(--weight-bg)"></span>activation scale（乘法输入，只读）</span>
+      <span class="legend-item"><span class="swatch" style="border-color:var(--good);background:var(--good-bg)"></span>fused uscale（相乘结果，PE 读它）</span>
+    </div>
+
+    <p class="lede" style="margin-top:22px">上图右侧那一列，就是下面要讨论的“放哪里”。</p>
+
+    <div class="case good" style="margin-top:14px">
+      <div class="case-head">
+        <div>
+          <p class="case-title">方案一：每个 block 的 UScale 紧跟在自己的 weight 后面</p>
+          <p class="case-sub">weight 与它的 UScale 组成一个 combined unit，PE 取数不跨区</p>
+        </div>
+        <span class="tag good">强烈推荐</span>
+      </div>
+
+      <div class="case-split">
+        <div>
+          <div class="dram">
+            <p class="dram-label">packed_weight · inout</p>
+            <div class="combined-list">
+              <div class="combined">
+                <div class="mem weight">block 0 weight</div>
+                <div class="mem scale">block 0<br>fused uscale</div>
+              </div>
+              <div class="combined">
+                <div class="mem weight">block 1 weight</div>
+                <div class="mem scale">block 1<br>fused uscale</div>
+              </div>
+              <div class="stack-continuation">⋮</div>
+            </div>
+          </div>
+
+          <p class="near">USaddr = block 基址 + weight 字节数</p>
+
+          <div class="dram" style="margin-top:14px">
+            <p class="dram-label">origin_uscale · 只读 · 独立连续</p>
+            <div class="separated-row">
+              <div class="mem origin">block 0<br>weight uscale</div>
+              <div class="mem origin">block 1<br>weight uscale</div>
+              <div class="mem origin">block 2<br>weight uscale</div>
+              <div class="inline-continuation">⋯</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <ul class="rule-list" style="margin-top:0">
+            <li><b>近存局部性最好</b>PE 取完一个 block 的 weight，紧接着取的 UScale 就在它后面，不跨近存区域。这是推荐它的唯一也是最重要的理由。</li>
+            <li><b>USaddr 由编译器推导</b><code>block 基址 + weight 字节数</code>，相对位置由硬件固定，kernel 不传 uscale 指针，参数表少一项。</li>
+            <li class="hard"><b>weight slab 必须 inout</b>fused UScale 页嵌在 weight 条带里，所以整块 slab 每次调用都会被改写，<b>无法跨 invocation 共享同一份 weight</b>。</li>
+            <li><b>origin uscale 仍然独立存放</b>它只参与乘法、不在 PE 取数的关键路径上，所以连续排一块即可。</li>
+          </ul>
+          <p class="metric-detail" style="margin-top:12px">参考 kernel：<br><code>triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_aligned_fp8xfp8_ugroup128_fused_uscale_bf16dst_f32acc_1x1024x256_1core.py</code></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="case" style="margin-top:18px">
+      <div class="case-head">
+        <div>
+          <p class="case-title">方案二：UScale 单独放一块，weight 保持只读</p>
+          <p class="case-sub">weight 条带里不再夹 UScale，第 i 个 block 对应 arena 的第 i 个 16 KiB 页</p>
+        </div>
+        <span class="tag risk">仅在 weight 必须只读时用</span>
+      </div>
+
+      <div class="case-split">
+        <div>
+          <div class="dram">
+            <p class="dram-label">packed_weight · 只读 · 纯 weight 紧排</p>
+            <div class="separated-row">
+              <div class="mem weight">block 0 weight</div>
+              <div class="mem weight">block 1 weight</div>
+              <div class="mem weight">block 2 weight</div>
+              <div class="inline-continuation">⋯</div>
+            </div>
+          </div>
+
+          <div class="dram" style="margin-top:11px">
+            <p class="dram-label">fused_uscale arena · inout · 按 slot 轮转</p>
+            <div class="separated-row">
+              <div class="mem scale">block 0<br>fused uscale</div>
+              <div class="mem scale">block 1<br>fused uscale</div>
+              <div class="mem scale">block 2<br>fused uscale</div>
+              <div class="inline-continuation">⋯</div>
+            </div>
+          </div>
+
+          <p class="near">USaddr = arena 基址 + 页号，由 <code>uscale=</code> 显式绑定</p>
+
+          <div class="dram" style="margin-top:14px">
+            <p class="dram-label">origin_uscale · 只读 · 与 arena 同序同布局</p>
+            <div class="separated-row">
+              <div class="mem origin">block 0<br>weight uscale</div>
+              <div class="mem origin">block 1<br>weight uscale</div>
+              <div class="mem origin">block 2<br>weight uscale</div>
+              <div class="inline-continuation">⋯</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <ul class="rule-list" style="margin-top:0">
+            <li class="hard"><b>PE 每个 block 都要跨区取数</b>weight 和它的 UScale 分居两块 slab，物理上相距整个 weight 区的距离。近存命中率不如方案一，这是硬件层面的差异，不会因为 kernel 写法优化而消失。</li>
+            <li><b>换来的是 weight 只读</b>同一份 weight 可以被多个流、多个 batch 或 graph replay 并发共享，每路只需各自一块 arena 按 slot 轮转。<b>这是选它的唯一理由。</b></li>
+            <li><b>USaddr 需要显式绑定</b>kernel 写 <code>tl.load(w, ugroup=…, uscale=arena + i×PAGE)</code>，编译器把该指针折算成相对 arena 基址的页号，并自动建立 ST 写 arena 到 PE 读 arena 的同步依赖。</li>
+            <li><b>参数表多一项</b>多一张 <code>fused_uscale_ptr_list</code> 地址表；编译器侧 PE 要登记两块 weight DRAM slab 的同步资源。</li>
+          </ul>
+          <p class="metric-detail" style="margin-top:12px">参考 kernel：<br><code>triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_fp8xfp8_ugroup128_fused_uscale_separate_bf16dst_f32acc_1x1024x256_1core.py</code></p>
+        </div>
+      </div>
+    </div>
+
+    <h3>两种放法的对照</h3>
+
+    <div class="scope scope-schemes">
+      <div class="scope-row scope-head"><div>维度</div><div>方案一（UScale 紧跟 weight）</div><div>方案二（UScale 单独一块）</div></div>
+      <div class="scope-row">
+        <div class="scope-key">近存局部性</div>
+        <div class="scope-value"><b>weight 与自己的 UScale 相邻</b>，PE 取数不跨区</div>
+        <div class="scope-value">两者分居不同 slab，每个 block 都要切换</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">weight slab 读写性</div>
+        <div class="scope-value">inout，条带里夹着 UScale 页</div>
+        <div class="scope-value"><b>只读</b>，纯 weight</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">USaddr 来源</div>
+        <div class="scope-value">block 基址 + weight 字节数（编译器隐式）</div>
+        <div class="scope-value">arena 基址 + 页号（<code>uscale=</code> 显式）</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">kernel 参数</div>
+        <div class="scope-value">5 个指针</div>
+        <div class="scope-value">6 个指针（多一张 arena 地址表）</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">weight 能否跨调用共享</div>
+        <div class="scope-value">不能，每次调用都会改写它</div>
+        <div class="scope-value"><b>能</b>，多路只需各自一块 arena</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">并发 / graph replay</div>
+        <div class="scope-value">同一份 weight 不能被多个未完成的 invocation 共享</div>
+        <div class="scope-value">arena 按 slot 轮转即可</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">编译器同步</div>
+        <div class="scope-value">同一 slab 内 store→PE</div>
+        <div class="scope-value">PE 登记<b>两块</b> weight DRAM slab</div>
+      </div>
+    </div>
+
+    <p class="lede"><b>结论：默认选方案一。</b>近存局部性是硬件层面的差异，不会因为 kernel 写法优化而消失。只有当同一份 weight 必须被多个流、多个 batch 或 graph replay 并发共享、从而不能被改写时，才用方案二 —— 那是它存在的唯一理由。</p>
+  </section>
+
+  <section>
+    <h2>五、ABI</h2>
+
+    <p class="lede">这是算法侧和 kernel 侧真正需要对齐的部分。下面以方案二为例列全，方案一只是少 <code>fused_uscale_ptr_list</code> 一项、并且 <code>packed_weight</code> 变成 inout。</p>
+
+    <table class="abi-table">
+      <thead>
+        <tr><th>参数</th><th>位置</th><th>读写</th><th>形状 / 布局</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>activation_fp8_ptr</code></td>
+          <td>GDG</td>
+          <td class="rw-in">in</td>
+          <td><code>[M, K]</code> fp8_e4m3</td>
+          <td>量化后的 activation，逻辑形状即物理形状。</td>
+        </tr>
+        <tr>
+          <td><code>activation_scale_ptr</code></td>
+          <td>GDG</td>
+          <td class="rw-in">in</td>
+          <td><code>[M, K/UGROUP<sub>padded</sub>]</code> bf16</td>
+          <td><b>算法侧原生的 per-group 形状，直接传即可</b>，不需要按 lane 重排、也不需要沿 N 复制。K-group 轴需 padding 到 <code>⌈K/BLOCK_K⌉ × G</code>。</td>
+        </tr>
+        <tr>
+          <td><code>packed_weight_ptr_list</code></td>
+          <td>GDG → LDG</td>
+          <td class="rw-in">in</td>
+          <td><code>[CORE_NUM]</code> 个 i64 地址</td>
+          <td>每项指向本 core 的 weight LDG，按 <code>(n_block, k_block)</code> 顺序排纯 weight block，块后不跟 UScale 页。方案一里这一项是 <span class="rw-inout">inout</span> 且块后跟页。</td>
+        </tr>
+        <tr>
+          <td><code>origin_uscale_ptr_list</code></td>
+          <td>GDG → LDG</td>
+          <td class="rw-in">in</td>
+          <td><code>[CORE_NUM]</code> 个 i64 地址</td>
+          <td>weight 自己的 per-channel UScale，每 block 一个物理 WUS 页，已按第三节的页格式排好。</td>
+        </tr>
+        <tr>
+          <td><code>fused_uscale_ptr_list</code></td>
+          <td>GDG → LDG</td>
+          <td class="rw-inout">inout</td>
+          <td><code>[CORE_NUM]</code> 个 i64 地址</td>
+          <td><b>方案二专有。</b>fused UScale arena，与 <code>origin_uscale</code> 同序同布局。基址与每一页都必须 16 KiB 对齐。</td>
+        </tr>
+        <tr>
+          <td><code>output_ptr</code></td>
+          <td>GDG</td>
+          <td class="rw-out">out</td>
+          <td><code>[M, N]</code> bf16</td>
+          <td>累加用 f32，写出转 bf16。</td>
+        </tr>
+        <tr>
+          <td><code>M</code> / <code>K</code> / <code>N</code></td>
+          <td>标量</td>
+          <td class="rw-in">in</td>
+          <td>i32</td>
+          <td>运行时维度。</td>
+        </tr>
+        <tr>
+          <td colspan="5" style="background:var(--surface-2)"><b>编译期常量（constexpr）</b></td>
+        </tr>
+        <tr>
+          <td><code>CORE_NUM</code></td><td>—</td><td>—</td><td>i32</td>
+          <td>PE core 数，决定 N 的切分。</td>
+        </tr>
+        <tr>
+          <td><code>BLOCK_M</code></td><td>—</td><td>—</td><td>i32</td>
+          <td><b>当前必须为 1</b>，见第一节末尾。</td>
+        </tr>
+        <tr>
+          <td><code>BLOCK_K</code> / <code>BLOCK_N</code></td><td>—</td><td>—</td><td>i32</td>
+          <td>PE tile 尺寸，同时决定 weight block 的划分。</td>
+        </tr>
+        <tr>
+          <td><code>UGROUP</code></td><td>—</td><td>—</td><td>i32</td>
+          <td>沿 K 的量化粒度，activation 与 weight 必须一致。参考 kernel 取 128。</td>
+        </tr>
+        <tr>
+          <td><code>K_ALIGNED</code></td><td>—</td><td>—</td><td>bool</td>
+          <td>K 是否为 <code>BLOCK_K</code> 整数倍，用于在编译期决定是否需要尾块 mask。<b>默认必须是 <code>False</code></b>，见第八节。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>为什么 act scale 是最朴素的形状</h3>
+
+    <p class="lede">这一版特意<b>没有</b>要求算法侧做任何重排。kernel 把 <code>[M, K/UGROUP]</code> 读成 <code>[1, 1, G, 1]</code>，由硬件沿页最内轴（16 个连续通道）做 C 方向广播，整页仍然只用<b>一条 VP</b> 完成相乘。</p>
+
+    <p class="lede">中途曾经用过 lane-major 的 <code>[M, N/R, K/UGROUP, R]</code>。它在 <code>BLOCK_N=128</code> 下能工作，但按第三节的真实编址要展开成 <code>[M, lane, kg, g, row16]</code> 五个轴，而 <code>tl.make_block_ptr</code> 只有四维 —— <code>BLOCK_N &gt; 128</code> 时根本摆不下。朴素形状不但能泛化，实测还更快：同形状下 4,828 对 4,968 cycles，因为读 G 个标量比读 <code>8×G×16</code> 个复制值省 LD 指令（27 对 31）。</p>
+  </section>
+  <section>
+    <h2>六、Kernel 怎么写</h2>
+
+    <p class="lede">两个参考 kernel 都是同一个两阶段结构。对每个 activation row：<b>先把这一行对应的全部 fused UScale 页写完，再做这一行的 blocked GEMM</b>。</p>
+
+    <div class="flow">
+      <div class="flow-row">
+        <div class="flow-tag">阶段 1<br>更新 scale</div>
+        <div class="flow-body">遍历所有 weight block；每个 block 内再按 <code>kg</code>（128 通道 super-group）拆。每轮：<b>2 条 LD</b>（origin UScale 一块 <code>[8, G, 16]</code> + act scale 一份 <code>[1, 1, G, 1]</code>）→ <b>1 条 VP</b>（相乘，C 方向广播）→ <b>1 条 ST</b>（写页对应区间）。</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-tag">阶段 2<br>GEMM</div>
+        <div class="flow-body">标准 blocked GEMM。weight 用 <code>tl.load(..., memory_type="weight", ugroup=UGROUP)</code>；方案二额外传 <code>uscale=arena_base + block_idx * PAGE</code>。<b><code>tl.dot</code> 不增加任何 scale 参数。</b></div>
+      </div>
+    </div>
+
+    <h3>阶段 1 的核心三步（方案二）</h3>
+
+    <pre class="source-code"><code>for super_group in tl.static_range(N_SUPER_GROUPS):     # BLOCK_N/128，=1 时零代价
+    row_start = super_group * GROUPS_PER_WEIGHT_BLOCK
+
+    original_uscale = tl.load(
+        tl.make_block_ptr(
+            base=origin_uscale_base,
+            shape=(total_weight_blocks, 8, USCALE_ROWS_PER_PAGE_LANE, 16),
+            strides=(PAGE_ELEMS, 1024, 16, 1),
+            offsets=(block_idx, 0, row_start, 0),
+            block_shape=(1, 8, G, 16),          # tile = (lane, g, row16)，C = 16
+            order=(3, 2, 1, 0),
+        ),
+        memory_type="weight",
+    )
+
+    act_narrow = tl.load(                        # 算法侧原生形状，读成 [1,1,G,1]
+        tl.make_block_ptr(
+            base=activation_scale_ptr,
+            shape=(M, 1, padded_k_groups, 1),
+            strides=(padded_k_groups, padded_k_groups, 1, 1),
+            offsets=(m_start, 0, first_k_group, 0),
+            block_shape=(1, 1, G, 1),
+            order=(3, 2, 1, 0),
+        ),
+    )
+
+    fused_uscale = original_uscale * act_narrow  # 硬件沿 16 连续通道做 C 广播
+
+    tl.store(..., fused_uscale, memory_type="weight")</code></pre>
+
+    <h3>阶段 2 的绑定（方案二）</h3>
+
+    <pre class="source-code"><code>weight = tl.load(
+    tl.make_block_ptr(base=packed_weight_base + block_idx * WEIGHT_BYTES,
+                      shape=(BLOCK_N, BLOCK_K), strides=(BLOCK_K, 1),
+                      offsets=(0, 0), block_shape=(BLOCK_N, BLOCK_K), order=(1, 0)),
+    memory_type="weight",
+    ugroup=UGROUP,
+    uscale=fused_uscale_base + block_idx * USCALE_PAGE_BF16_ELEMS,   # ← 只做地址绑定
+)
+accumulator += tl.dot(activation, tl.trans(weight), out_dtype=tl.float32)</code></pre>
+
+    <p class="lede"><code>uscale=</code> <b>不产生任何数据搬运</b>。编译器把这个指针折算成 <code>PE_SETM_U</code> 的 <code>USaddr</code>，并自动建立"ST 写 arena → PE 读 arena"的同步依赖。方案一不需要这个参数，编译器按邻接规则推导。</p>
+
+    <div class="callout">
+      <b>为什么要按 <code>kg</code> 拆循环。</b><code>kg·(G·16) + g·16 + row</code> 和 <code>(kg·G + g)·16 + row</code> 描述的是同一段内存，但交给 DMA 的 tile 形状不同。<b>C 必须等于硬件的 16 行粒度</b>：把 <code>g</code> 折进 C（变成 <code>C = G·16</code>）会让描述符退化成一堆小传输，实测同形状下 LD 指令 31 → 157、CT 1,017 → 3,889、wall <b>4,968 → 23,301（4.7 倍回退）</b>，而 PE/VP 的工作量一模一样。反过来若保持 C=16 却想让 act scale 沿 W 轴平铺，reshape 出来的视图不 compact，会被 <code>VP matrix C-broadcast requires a proven compact SrcB view</code> 拒掉。按 <code>kg</code> 拆开两个问题一起解决，<code>BLOCK_N=128</code> 时循环退化成 1 次、零代价。
+    </div>
+  </section>
+
+  <section>
+    <h2>七、硬性约束清单</h2>
+
+    <p class="lede">下面每一条都是<b>会导致静默错误或编译失败</b>的边界，不是建议。</p>
+
+    <ul class="rule-list">
+      <li class="hard"><b><code>BLOCK_M</code> 必须为 1</b>不同 activation row 的 scale 不同，而一个 weight block 只有一份 fused UScale 页。要支持 <code>BLOCK_M &gt; 1</code> 需要每行一份页，属于后续工作。</li>
+      <li class="hard"><b><code>BLOCK_N</code> 必须是 128 的整数倍</b>128 = 8 lane × 16 row 是一个完整的 super-group。不是整数倍时页内编址无法闭合。</li>
+      <li class="hard"><b><code>BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192</code></b>保证一个 block 的全部 scale 放得进单个 16 KiB 页。超过会被 <code>forward_transform_uscale</code> 分段，当前 kernel 的单页视图不再成立。</li>
+      <li class="hard"><b>UScale 存放位置必须 16 KiB 对齐</b><code>USaddr</code> 以 16 KiB 页为单位。方案二的 arena 基址和每一页都要对齐；仿真框架的 weight DRAM 分配器已相应改为 16 KiB 对齐。</li>
+      <li><b><code>K</code> 必须按 <code>UGROUP</code> 对齐</b><code>BLOCK_K</code> 可以包含多个 <code>UGROUP</code>，不要求 <code>BLOCK_K == UGROUP</code>，但 quant group 必须完整落在 block 内。</li>
+      <li><b>每个 core 的 <code>N</code> 必须按 <code>BLOCK_N</code> 对齐</b>多核时 N 先切给 core，再按 <code>BLOCK_N</code> 分块。</li>
+      <li><b>activation 与 weight 的 <code>UGROUP</code> 必须相同</b>fused UScale 是两者逐 group 相乘，group 边界不一致就没有意义。</li>
+      <li><b>act scale 的 K-group 轴要 padding 到 <code>⌈K/BLOCK_K⌉ × G</code></b><code>boundary_check</code> 在硬件上是<b>裁 tile 尺寸</b>而不是补零，被裁掉的部分在 L2 里留的是未初始化数据。padding 后由 kernel 自己的 mask 置零。</li>
+      <li class="hard"><b>fused UScale 的宿主不能被并发共享</b>方案一是 <code>packed_weight</code>，方案二是 arena。同一块不能被多个未完成的 invocation 使用；并发或 graph replay 由调用方按 slot 轮转。kernel 返回时其中保留<b>最后一个 M row</b> 对应的 fused UScale。</li>
+      <li><b>页内 padding 不被写入</b>kernel 只写有效区。宿主参数是 inout，padding 保留调用方传入的原值 —— 如果调用方要求 padding 为特定值（例如逐字节比对），需要自己预置。</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>八、实测数据</h2>
+
+    <div class="status-line">
+      <span class="status-pill on">VCS PASS · bit-exact</span>
+      <span class="status-pill">M=2 · K=1024 · N=256</span>
+      <span class="status-pill">1 core · FP8 · BLOCK_M=1</span>
+      <span class="status-pill">BLOCK_N=256（两个 super-group）</span>
+      <span class="status-pill">trace / PE = 400 MHz</span>
+    </div>
+
+    <p class="evidence-lede">两个方案在 RTL 上均为 bit-exact：方案一 <code>packed_weight</code> 278528/278528、方案二 <code>fused_uscale</code> 16384/16384，<code>output</code> 均 1024/1024。按真实通道编址重写之后，同 N 下 wall 从 8,800 降到 7,020 cycles（−20%）。</p>
+
+    <div class="callout">
+      <b>这里不列两个方案的 wall 对照。</b>当前样本是单核、<code>M=2</code>、两个 weight block 的小 case，weight 与 UScale 的近存局部性差异在这个规模上还体现不出来，把两个数字并排会给出错误的印象。选型依据请看第四节：<b>默认用方案一</b>，方案二只在 weight 必须只读时才用。
+    </div>
+
+    <h3>演进过程</h3>
+
+    <p class="lede">这个特性的 scale 更新代价经历过三次量级变化，都是在 <code>M=2 K=1024 N=128</code> 上测的：</p>
+
+    <div class="scope">
+      <div class="scope-row scope-head"><div>写法</div><div>wall</div><div>瓶颈</div></div>
+      <div class="scope-row">
+        <div class="scope-key">逐 <code>(lane, K-group)</code> 段</div>
+        <div class="scope-value">106,873</div>
+        <div class="scope-value">128 个 segment，代价全在指令固定开销</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">lane 维向量化</div>
+        <div class="scope-value">16,637</div>
+        <div class="scope-value">仍按 K-group 循环</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">整页一次读-乘-写</div>
+        <div class="scope-value"><b>3,498</b></div>
+        <div class="scope-value">每 block 2 LD + 1 VP + 1 ST</div>
+      </div>
+    </div>
+
+    <p class="lede">累计 <b>−96.7%（30.6×）</b>。<b>PE 全程 265 cycles 不变</b> —— 收益全部来自消除 scale 更新的指令固定开销，没有触碰 MAC 路径。这也说明：这个特性的开销本质是<b>指令条数</b>问题，不是带宽或算力问题。</p>
+
+    <p class="lede">这条演进曲线对两个方案是共同的 —— 它们的 scale 更新代码结构一样，改动同步落到两边。<b>方案之间的选择不在这条曲线上</b>：决定性因素是 weight 与 UScale 的近存局部性，见第四节。</p>
+  </section>
+  <section>
+    <h2>九、写这类 kernel 时踩过的坑</h2>
+
+    <p class="lede">下面几条是实测撞过、并且会影响写法的编译器与硬件边界。参考 kernel 的注释里逐条记了原因和 issue 号，改 kernel 前建议先看一眼。</p>
+
+    <div class="scope">
+      <div class="scope-row scope-head"><div>限制</div><div>后果</div><div>只能怎么写</div></div>
+      <div class="scope-row">
+        <div class="scope-key">tensor 条件的 <code>tl.where</code> 无法 legalize</div>
+        <div class="scope-value">编译失败（<code>linalg.generic</code>）</div>
+        <div class="scope-value">尾块 mask 用 <code>clamp(valid−g, 0, 1)</code> 的纯 f32 算术拼<br><a href="http://172.16.116.216:30000/compilergroup/triton_shared/issues/196">issue #196</a></div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key"><code>scf.if</code> 两分支 store 条数不同</div>
+        <div class="scope-value">破坏 InjectSync 的 ST→VP credit</div>
+        <div class="scope-value">尾块 guard 只能用 constexpr 在编译期择路，不能用运行时分支<br><a href="http://172.16.116.216:30000/compilergroup/triton_shared/issues/197">issue #197</a></div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key"><code>tl.trans</code> 的 3D permute 退化成逐元素</div>
+        <div class="scope-value">DT 指令 18 → 4,143，wall → 303,412</div>
+        <div class="scope-value">不能在 kernel 里换维序，只能让 ABI 与页轴序天然一致<br><a href="http://172.16.116.216:30000/compilergroup/triton_shared/issues/198">issue #198</a></div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">DMA tile 的 C 轴不是 16</div>
+        <div class="scope-value">描述符退化，wall 4,968 → 23,301</div>
+        <div class="scope-value">tile 必须是 <code>(lane=8, g=G, row=16)</code>，按 <code>kg</code> 拆循环</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">VP matrix C-broadcast 要求 compact SrcB</div>
+        <div class="scope-value">非 compact 视图被直接拒绝</div>
+        <div class="scope-value">act scale 每个 <code>kg</code> 用同一份 <code>[1,1,G,1]</code>，不沿 W 平铺</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key"><code>boundary_check</code> 只裁 tile 不补零</div>
+        <div class="scope-value">被裁部分是 L2 未初始化数据</div>
+        <div class="scope-value">act scale 的 K-group 轴按 <code>BLOCK_K</code> padding，再自己补 mask</div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-key">多维 ptr-vector offset 丢 stride</div>
+        <div class="scope-value">地址算错</div>
+        <div class="scope-value">lane stride 必须走 <code>block_ptr</code>，偏移必须进 <code>offsets</code></div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>还有一条与 kernel 写法无关、但会坑到验证的：</b><code>resolve_constants</code> 的缺省值必须落在<b>安全侧</b>。<code>triton_shared/zeus_compile.py</code> 从环境变量取 dynamic 形状，GEMM suite 的第一阶段在不设该变量的情况下先编译一份通用 IR，再把这份 IR 连同各 case 的 dynamic 一起跑。如果 <code>K_ALIGNED</code> 的缺省值或 fallback 取"看起来合理"的那一侧（把缺失的 K 当成 <code>BLOCK_K</code>），就会算出"K 对齐"并静默丢掉尾块 mask —— K 非对齐的 case 于是在无效 group 上残留上一行的 fused scale。缺省值必须选<b>错了也安全</b>的那个。
+    </div>
+  </section>
+
+  <section>
+    <h2>十、当前实现边界</h2>
+
+    <p class="lede">下面这些是<b>本次没有覆盖</b>的范围，需要时请提前对齐：</p>
+
+    <ul class="rule-list">
+      <li><b>BLOCK_M &gt; 1</b>需要每个 activation row 一份 WUS 页，涉及 arena 容量与 USaddr 的按行推导。</li>
+      <li><b>多核 arena 切分</b>参考 kernel 是 <code>CORE_NUM=1</code>。多核时每个 core 需要各自的 arena 区间，地址表按 core 索引，尚未验证。</li>
+      <li><b>单页放不下的大 block</b><code>BLOCK_N × G &gt; 8192</code> 时 <code>forward_transform_uscale</code> 会分段，kernel 的单页视图需要改成分段视图。</li>
+      <li><b>INT4 weight</b>当前两个 example 都是 FP8。INT4 的 K 打包规则与 WBS 配置不同，需要单独验证。</li>
+      <li><b>host 侧 arena 生命周期</b>slot 轮转、并发保护、graph replay 的具体策略由调用方决定，编译器只保证 kernel 内部的 store→PE 依赖。</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>参考 kernel · 完整源码</h2>
+    <div class="status-line">
+      <span class="status-pill on">方案一已合入 master</span>
+      <span class="status-pill on">方案二已合入 master</span>
+      <span class="status-pill">BLOCK_N=256 · BLOCK_K=1024 · UGROUP=128</span>
+    </div>
+    <p class="source-note">两份 kernel 的文件头都带完整的公式推导、页布局图和约束说明，可以直接作为改写的起点。两者的 <code>tl.dot</code>、两阶段结构、整页向量化的 scale 更新、以及 act scale 的 ABI 完全相同；差别只有 weight slab 的读写性、是否多一张 arena 地址表、以及 weight load 是否带 <code>uscale=</code>。</p>
+
+    <details class="source-details">
+      <summary>方案一：triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_aligned_fp8xfp8_ugroup128_fused_uscale_bf16dst_f32acc_1x1024x256_1core.py</summary>
+      <pre class="source-code"><code id="fused-uscale-kernel-source">
+# SIM_PARAMS: activation_fp8:ptr:in:[1,1,"M","K"]:fp8  activation_scale:ptr:in:["M","((K+1023)//1024)*8"]:bf16  packed_weight:wgt_ptr:inout:[1,"N","K"]:fp8:uscale_128_aligned_278528_bk_1024_bn_256  origin_uscale:wgt_ptr:in:["N//256","(K+1023)//1024",8,1024]:bf16:raw  output:ptr:out:[1,1,"M","N"]:bf16  M:i32  K:i32  N:i32
+# SIM_GOLDEN: fused_uscale_matmul
+# SIM_RANGE: M=1:3 K=1024:3072 N=256:768
+"""设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
+
+本 example 是 fused UScale 的首个参考实现，采用**方案一（邻接原地更新）**：
+每个 weight block 后面紧跟属于它自己的 fused UScale 页，设备侧算完直接原地
+覆盖该页，kernel ABI 不传独立的 fused_uscale 指针。
+
+===============================================================================
+1. 为什么需要 fused UScale
+===============================================================================
+
+PE 硬件只有**一条** scale 通路，且挂在 weight 侧（WL1）。activation 侧没有
+任何 scale 通路，所以 act 的 per-group scale 只能在进 PE 之前就物化掉。做法
+是把它乘进 weight UScale：
+
+    out[m,n] = Σ_k act[m,k]·w[n,k]
+             = Σ_g  Σ_{k∈g} (act_q[m,k]·act_scale[m,g]) · (w_q[n,k]·w_uscale[n,g])
+             = Σ_g  act_scale[m,g]·w_uscale[n,g] · ( Σ_{k∈g} act_q[m,k]·w_q[n,k] )
+                    └──────── fused_uscale[n,g] ────────┘   └───── PE 负责 ─────┘
+
+PE 每吃满 UGROUP 个 K 就自动换一次 scale，换的是**按输出通道 n 索引**的那一个
+（weight 量化本来就是 per-channel）。所以 fused UScale 必须铺满 [BLOCK_N, G]，
+即使 act_scale 沿 n 是常数 —— 那 G 个值被广播了 BLOCK_N 遍。
+
+===============================================================================
+2. 记号：WUS 页的通道编址
+===============================================================================
+
+    G    = BLOCK_K / UGROUP        每个 weight block 含多少个 K quant group
+    lane ∈ [0, 8)                  WL1 lane
+    row  ∈ [0, 16)                 lane 内的行；**16 是硬件固定的行粒度**
+    kg   ∈ [0, BLOCK_N / 128)      输出通道的 128 通道 super-group 下标
+
+    n = kg * 128 + lane * 16 + row          输出通道号
+
+本 example：BLOCK_N=256, BLOCK_K=1024, UGROUP=128 → G = 8, kg ∈ {0, 1}
+
+★ **不要把它写成 `n = lane * (BLOCK_N/8) + row`。** 那个式子只在 BLOCK_N=128
+  时碰巧成立（此时 kg 只有一个，且 BLOCK_N/8 恰好等于硬件粒度 16），
+  BLOCK_N 一旦变大就会静默算错 —— 输出量级正常、逐通道乱掉，很难从症状
+  反推到 layout。权威定义见
+  `sim_check/sim_framework/weight/transform.py:forward_transform_uscale`。
+  本 example 特意取 BLOCK_N=256（kg 有两个）来覆盖通用路径。
+
+===============================================================================
+3. LDG 排布（方案一：weight 与自己的 UScale 紧邻）
+===============================================================================
+
+packed_weight（inout）按 (n_block, k_block) 顺序排 combined unit：
+
+    ┌───────────────────────────────┬──────────────────┐
+    │  block 0 weight               │  fused UScale    │  combined unit 0
+    │  BLOCK_N × BLOCK_K  FP8       │  一个物理 WUS 页  │  = ALIGNED_SPACE
+    │  = 262144 B                   │  = 16 KiB        │  = 278528 B
+    ├───────────────────────────────┼──────────────────┤
+    │  block 1 weight               │  fused UScale    │  combined unit 1
+    ├───────────────────────────────┼──────────────────┤
+    │            ⋮                  │        ⋮         │
+    └───────────────────────────────┴──────────────────┘
+                                    ↑
+        PE 用 USaddr = block_base + weight_bytes 取 scale，相对位置由硬件固定
+
+origin_uscale（只读）按同样的 block 顺序存 original weight UScale，每 block
+一个物理 WUS 页，可以独立连续存放 —— 它只参与更新，不在 PE 取数的关键路径上。
+
+-------------------------------------------------------------------------------
+物理 WUS 页内部（8 个 WL1 lane，每 lane stride 1024 个 BF16，共 16 KiB）
+-------------------------------------------------------------------------------
+
+    page_offset(lane, kg, g, row) = lane*1024 + kg*(G*16) + g*16 + row
+
+              ├──────────────── 每 lane 1024 个 BF16 ─────────────────┤
+              ├──── kg=0 (G*16=128) ────┬──── kg=1 (G*16=128) ────┬─ pad ─┤
+              │ g0 │ g1 │ … │ g7        │ g0 │ g1 │ … │ g7        │       │
+    lane 0    │ n=0..15 (每格 16 个通道) │ n=128..143              │       │
+    lane 1    │ n=16..31                │ n=144..159              │       │
+      ⋮
+    lane 7    │ n=112..127              │ n=240..255              │       │
+              └─────────────────────────┴─────────────────────────┴───────┘
+
+    每个 (kg, g) 格子里是 **16 个连续输出通道**（上面只标了 g0 那一格的 n，
+    同一 kg 内 g1..g7 覆盖的是同一批通道、不同的 K quant group）；
+    相邻 lane 相差 16 个通道，相邻 kg 相差 128 个通道。
+
+页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据只有
+BLOCK_N × G 个（本 example 2048 个，占页面 1/4），其余是页内 padding。
+约束 (BLOCK_N/128) × G × 16 ≤ 1024，等价于 **BLOCK_N × G ≤ 8192**；
+超出这个界 forward_transform_uscale 会把页分段（S &gt; 1），本 kernel 的
+单段视图就不再成立。
+
+===============================================================================
+4. GDG 排布：act scale 用最朴素的形状
+===============================================================================
+
+    activation_scale: [M, K/UGROUP_padded]
+                       │   └── K-group，padding 到 ⌈K/BLOCK_K⌉ × G
+                       └── token
+
+**算法侧产出什么就传什么** —— per-128 量化本来就是这个形状，不需要按 WL1 lane
+重排，也不需要知道页的几何。
+
+kernel 侧读成 [1, 1, G, 1]，由硬件沿页最内轴（16 个连续通道）做 C 方向广播，
+**整页仍然只用一条 VP**。
+
+这个 ABI 不但不比 lane-major 慢，实测还略快：同形状（BLOCK_M=1, BLOCK_K=1024,
+BLOCK_N=128, M=2/K=1024/N=128，VCS 带 trace）**4,828 cy vs lane-major 的
+4,968 cy（−2.8%）**，因为只读 G 个标量比读 8×G×16 个 lane-major 值省 LD
+（LD 指令 27 vs 31，CT 955 vs 1,017）。
+
+曾经用过 lane-major `[M, N/R, K/UGROUP_pad, R]`（R = BLOCK_N/8）：它在
+BLOCK_N=128 下能工作，但按 §2 的真实编址要展开成 [M, lane, kg, g, row16]
+五个轴，而 tl.make_block_ptr 只有四维 —— BLOCK_N &gt; 128 时根本摆不下。
+
+K-group 轴 padding 到 BLOCK_K 的整数倍，是为了让最后一个 block 也能读满 G 个
+group 而不越界 —— boundary_check 在硬件上是**裁 tile 尺寸**而非补零，被裁掉
+的部分在 L2 里留的是未初始化数据。
+
+===============================================================================
+5. 执行语义
+===============================================================================
+
+BLOCK_M 固定为 1：fused UScale 紧贴 weight block，一个 block 只有一页 WUS，
+而不同 token 的 act scale 不同，所以只能逐 token 重算。对每个 M row：
+
+    for each weight block:
+      for kg in range(BLOCK_N / 128):          # 见下面「为什么按 kg 拆」
+        LD  origin weight UScale [8, G, 16]  ─┐
+        LD  act scale [1, G, 1]              ─┼→ VP 相乘 → ST 覆盖对应的页区间
+    然后执行该 row 的标准 blocked GEMM
+        weight 仍走 tl.load(..., memory_type="weight", ugroup=UGROUP)，
+        tl.dot 不增加任何 scale 参数
+
+-------------------------------------------------------------------------------
+★ 为什么按 kg 拆循环，而不是把 (g, row16) 合成一个 G*16 的最内轴
+-------------------------------------------------------------------------------
+
+两种写法描述的是同一段内存（kg*(G*16) + g*16 + row ≡ (kg*G + g)*16 + row），
+但交给 DMA 的 tile 形状不同：
+
+    本 kernel   tile = (lane=8, g=G, row=16)      C = 16    ✓
+    合并写法    tile = (lane=8, kg=N_SUPER, GG)   C = G*16  ✗
+
+**C 必须等于硬件的 16 行粒度。** 把 g 折进 C 会让描述符退化成一堆小传输 ——
+实测同形状下 LD 指令 31 → 157、CT 1,017 → 3,889、wall **4,968 → 23,301
+（4.7 倍回退）**，而 PE/VP 的工作量一模一样。
+
+反过来，若保持 C=16 而想让 act scale 沿 W 轴（kg,g 合并轴）平铺，reshape
+出来的视图不 compact，会被 "VP matrix C-broadcast requires a proven compact
+SrcB view" 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
+一起解决；BLOCK_N = 128 时循环退化成 1 次，零代价（实测与不拆完全同 cycle）。
+
+K 非 BLOCK_K 整数倍时，尾部 group 必须显式写 0（同一份 packed slab 会被后续
+M row 复用，不写会残留上一行的 fused scale）。该 guard 由 K_ALIGNED constexpr
+在编译期择路，对齐 shape 不付任何代价 —— 详见下面 resolve_constants。
+
+===============================================================================
+6. ABI 与约束
+===============================================================================
+
+* ``activation_fp8_ptr``   GDG 只读，逻辑 [M, K]。
+* ``activation_scale_ptr`` GDG 只读，[M, K/UGROUP_padded]，见 §4。
+* ``packed_weight_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的 LDG
+                              inout 区，combined unit 排布见 §3。
+* ``origin_uscale_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的只读
+                              LDG，每 block 一个物理 WUS 页。
+* ``output_ptr``           GDG 写出，逻辑 [M, N] 的 BF16。
+
+约束：
+
+* M 是运行时维度；BLOCK_M 固定为 1。
+* K 必须按 UGROUP 对齐；BLOCK_K 可含多个 UGROUP（不要求 BLOCK_K == UGROUP）。
+* 每个 core 的 N 必须按 BLOCK_N 对齐，且 BLOCK_N 必须是 128 的整数倍
+  （128 = 8 lane × 16 row 是一个 super-group）。
+* BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192，保证一个 block 的全部 scale 放得进
+  相邻的单个 WUS 页（见 §3）。
+* activation 与 weight 必须用相同的 UGROUP。
+* 同一份 packed_weight 不能被多个 invocation 并发更新；kernel 返回时其中保留
+  最后一个 M row 对应的 fused UScale。
+"""
+
+
+import triton
+import triton.language as tl
+
+
+@triton.jit
+def gemm_fused_uscale_fp8xfp8_kernel(
+    activation_fp8_ptr,           # GDG readonly；FP8 [M, K]
+    activation_scale_ptr,         # GDG readonly；BF16 per-group scale [M, K / UGROUP, N]
+    packed_weight_ptr_list,       # GDG [CORE_NUM] 地址表 -&gt; LDG inout [weight block][物理 WUS page]
+    origin_uscale_ptr_list,       # GDG [CORE_NUM] 地址表 -&gt; LDG readonly；每个 block 逻辑 [BLOCK_N, BLOCK_K / UGROUP]，物理 WUS page [8, 1024]
+    output_ptr,                   # GDG writeonly；BF16 [M, N]
+    M,                            # 运行时 i32 标量；GEMM M
+    K,                            # 运行时 i32 标量；GEMM K
+    N,                            # 运行时 i32 标量；GEMM N
+    CORE_NUM: tl.constexpr,       # 编译期标量；PE core 数
+    BLOCK_M: tl.constexpr,        # 编译期 M tile；当前只支持 1
+    BLOCK_K: tl.constexpr,        # 编译期 K tile；必须是 UGROUP 的整数倍
+    BLOCK_N: tl.constexpr,        # 编译期 N tile；packed weight block 的 N 维
+    UGROUP: tl.constexpr,         # 编译期标量；activation/weight 沿 K 的量化粒度
+    K_ALIGNED: tl.constexpr,      # 编译期标量；K 是否为 BLOCK_K 的整数倍
+):
+    """逐 activation row 更新相邻 fused UScale，再执行 block GEMM。"""
+    # 物理 WUS 页由 8 个 WL1 lane 组成，每个 lane 固定占 1024 个 BF16。
+    USCALE_ELEMENT_BYTES: tl.constexpr = 2
+    USCALE_LANES: tl.constexpr = 8
+    USCALE_LANE_STRIDE_BF16: tl.constexpr = 1024
+    # 页的真实几何 (权威来源 forward_transform_uscale):
+    #   页内偏移 = lane*1024 + kg*(G*16) + g*16 + row16
+    #   输出通道 n = kg*128 + lane*16 + row16,  kg ∈ [0, BLOCK_N/128)
+    # 每 lane 的行粒度恒为 16, 外层套 128 通道的 super-group。
+    # 注意 BLOCK_N/8 那套只在 BLOCK_N=128 时碰巧成立。
+    USCALE_ROW_GRANULE: tl.constexpr = 16
+    USCALE_CHANNELS_PER_SUPER: tl.constexpr = (
+        USCALE_LANES * USCALE_ROW_GRANULE
+    )
+    N_SUPER_GROUPS: tl.constexpr = BLOCK_N // USCALE_CHANNELS_PER_SUPER
+    USCALE_PAGE_BF16_ELEMS: tl.constexpr = (
+        USCALE_LANES * USCALE_LANE_STRIDE_BF16
+    )
+    GROUPS_PER_WEIGHT_BLOCK: tl.constexpr = BLOCK_K // UGROUP
+    # 页里每个 lane 覆盖 (kg, g) 两级共 N_SUPER*G 行, 每行 16 个连续通道。
+    PAGE_ROWS_PER_LANE: tl.constexpr = (
+        N_SUPER_GROUPS * GROUPS_PER_WEIGHT_BLOCK
+    )
+    WEIGHT_BYTES_PER_BLOCK: tl.constexpr = BLOCK_N * BLOCK_K
+    ALIGNED_SPACE_BYTES: tl.constexpr = (
+        WEIGHT_BYTES_PER_BLOCK
+        + USCALE_PAGE_BF16_ELEMS * USCALE_ELEMENT_BYTES
+    )
+    ALIGNED_SPACE_BF16: tl.constexpr = (
+        ALIGNED_SPACE_BYTES // USCALE_ELEMENT_BYTES
+    )
+    SEGMENTS_PER_UNIT: tl.constexpr = (
+        ALIGNED_SPACE_BF16 // USCALE_LANE_STRIDE_BF16
+    )
+    SCALE_FIRST_SEGMENT: tl.constexpr = (
+        WEIGHT_BYTES_PER_BLOCK
+        // USCALE_ELEMENT_BYTES
+        // USCALE_LANE_STRIDE_BF16
+    )
+
+    # BLOCK_M 必须为 1：不同 activation row 有不同的 scale，而一次 PE dot
+    # 只能为整个 M tile 绑定同一份 weight UScale。
+    tl.static_assert(BLOCK_M == 1, "每次 dot 只能消费一行 activation scale")
+    # BLOCK_K 是 PE tile 宽度，不等于 quant group。一个 weight block 可以
+    # 包含多个 UGROUP；只要求 group 完整落在 block 内，并且全部 scale
+    # 能放进每个 WL1 lane 的物理区域。
+    tl.static_assert(BLOCK_K % UGROUP == 0, "K block 必须包含整数个 quant group")
+    tl.static_assert(
+        BLOCK_N % USCALE_CHANNELS_PER_SUPER == 0,
+        "输出通道必须能够均分成 128 通道的 super-group",
+    )
+    tl.static_assert(
+        PAGE_ROWS_PER_LANE * USCALE_ROW_GRANULE
+        &lt;= USCALE_LANE_STRIDE_BF16,
+        "每个 WL1 lane 的 quant-group scale 必须能放入自己的 WUS 区域",
+    )
+
+    core_id = tl.program_id(axis=0)
+    n_per_core = N // CORE_NUM
+    total_m_blocks = tl.cdiv(M, BLOCK_M)
+    total_n_blocks = tl.cdiv(n_per_core, BLOCK_N)
+    total_k_blocks = tl.cdiv(K, BLOCK_K)
+    total_k_groups = tl.cdiv(K, UGROUP)
+    # act scale 的 K-group 维按 BLOCK_K 对齐做 padding: 这样最后一个
+    # weight block 读满 G 个 group 时也落在分配范围内(读到 padding 值),
+    # 越界部分靠下面的 mask 置零。若改用 boundary_check, 它在硬件上是裁
+    # tile 尺寸而非补零, 读回来的 tensor 形状会和 mask 对不上。
+    padded_k_groups = total_k_blocks * GROUPS_PER_WEIGHT_BLOCK
+
+    # 两个 ptr_list 自身位于 GDG；表项分别给出本 core 的可写 packed LDG
+    # 和只读 original-USScale LDG 基地址。
+    packed_weight_addr = tl.load(packed_weight_ptr_list + core_id)
+    packed_slab_base = packed_weight_addr.to(tl.pointer_type(tl.bfloat16))
+    packed_weight_base = packed_weight_addr.to(
+        tl.pointer_type(tl.float8e4nv)
+    )
+    origin_uscale_addr = tl.load(origin_uscale_ptr_list + core_id)
+    origin_uscale_base = origin_uscale_addr.to(
+        tl.pointer_type(tl.bfloat16)
+    )
+
+    activation_template = tl.make_block_ptr(
+        base=activation_fp8_ptr,
+        shape=(M, K),
+        strides=(K, 1),
+        offsets=(0, 0),
+        block_shape=(BLOCK_M, BLOCK_K),
+        order=(1, 0),
+    )
+    output_template = tl.make_block_ptr(
+        base=output_ptr,
+        shape=(M, CORE_NUM, n_per_core),
+        strides=(N, n_per_core, 1),
+        offsets=(0, core_id, 0),
+        block_shape=(BLOCK_M, 1, BLOCK_N),
+        order=(2, 1, 0),
+    )
+
+    fused_uscale_offset = WEIGHT_BYTES_PER_BLOCK // USCALE_ELEMENT_BYTES
+    total_weight_blocks = total_n_blocks * total_k_blocks
+
+    # BLOCK_M 固定为 1，但 M 是任意运行时维度。每一行必须先完成自己的
+    # fused-USScale 更新和 GEMM，才能让下一行安全复用同一批 LDG scale 槽。
+    for m_block in range(total_m_blocks):
+        m_start = m_block * BLOCK_M
+
+        # 每个 weight block 的 fused UScale 按 kg 分次读-乘-写。
+        # What: 一次覆盖 (lane, g, row16) = (8, G, 16), 每个 kg 只发
+        #   2 条 LD + 1 条 VP + 1 条 ST, 而不是按 (lane, group) 段循环 8*G 轮。
+        # Why: 一条 VP 算 128 个元素只要 4 拍却占 73 cy, 时间几乎只由指令条数
+        #   决定。逐段版本在 M=2/K=1024/N=128 下 128 个 segment 吃掉 wall
+        #   106,873 cy(LD 31,175 + ST 19,710), 而真正的 MAC 只占 265 cy ——
+        #   固定开销完全主导。
+        # Assumption: origin/fused 页与 act scale 能用同一套
+        #   (lane, g, row16) 索引表达且 stride 递减 —— 页是 (1024, 16, 1),
+        #   act scale 沿 g 变、由硬件在 row16 方向做 C 广播。
+        # Not covered: 仍要求 (BLOCK_N/128)*G*16 &lt;= USCALE_LANE_STRIDE_BF16
+        #   (见上面的 static_assert); 不改变页内布局和数值语义。
+        for block_idx in range(total_weight_blocks):
+            n_block = block_idx // total_k_blocks
+            k_block = block_idx % total_k_blocks
+            global_n_start = core_id * n_per_core + n_block * BLOCK_N
+            first_k_group = k_block * GROUPS_PER_WEIGHT_BLOCK
+
+            # 页里每个 lane 的 W 轴是 (kg, g) 两级: kg 是 128 通道的
+            # super-group, g 是 K quant group, 每格 16 个连续输出通道。
+            # 按 kg 拆开处理, 好处有两个:
+            #   1. tile 保持 (lane, g, row16) = (8, G, 16), C=16 —— 与页内
+            #      真实的连续性一致; 若把 g 和 row16 合成 C=G*16 交给 DMA,
+            #      描述符会退化成一堆小传输(实测 LD 指令 31 -&gt; 157, CT 3.8x,
+            #      wall 4,968 -&gt; 23,301)。
+            #   2. act scale 只随 g 变, 每个 kg 用的是同一份 [1,1,G,1],
+            #      直接做 C 方向广播即可; 若改成沿 W 平铺, reshape 出来的
+            #      视图不 compact, 会被 "VP matrix C-broadcast requires a
+            #      proven compact SrcB view" 拒掉。
+            for super_group in tl.static_range(N_SUPER_GROUPS):
+                row_start = super_group * GROUPS_PER_WEIGHT_BLOCK
+                original_uscale = tl.load(
+                    tl.make_block_ptr(
+                        base=origin_uscale_base,
+                        shape=(total_weight_blocks, USCALE_LANES,
+                               USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE,
+                               USCALE_ROW_GRANULE),
+                        strides=(USCALE_PAGE_BF16_ELEMS,
+                                 USCALE_LANE_STRIDE_BF16,
+                                 USCALE_ROW_GRANULE, 1),
+                        offsets=(block_idx, 0, row_start, 0),
+                        block_shape=(1, USCALE_LANES,
+                                     GROUPS_PER_WEIGHT_BLOCK,
+                                     USCALE_ROW_GRANULE),
+                        order=(3, 2, 1, 0),
+                    ),
+                    memory_type="weight",
+                )
+                # act scale ABI 就是算法侧原本的 per-128 形状 [M, K/UGROUP],
+                # 不需要按 WL1 lane 重排。这里读成 [1,1,G,1] 后由硬件沿
+                # 16 个通道做 C 广播。
+                act_narrow = tl.load(
+                    tl.make_block_ptr(
+                        base=activation_scale_ptr,
+                        shape=(M, 1, padded_k_groups, 1),
+                        strides=(padded_k_groups, padded_k_groups, 1, 1),
+                        offsets=(m_start, 0, first_k_group, 0),
+                        block_shape=(1, 1, GROUPS_PER_WEIGHT_BLOCK, 1),
+                        order=(3, 2, 1, 0),
+                    ),
+                )
+                # K 尾块的越界 group 必须置零(同一 slab 会被后续 M row 复用)。
+                if K_ALIGNED:
+                    fused_uscale = original_uscale * act_narrow
+                else:
+                    group_ids = tl.arange(
+                        0, GROUPS_PER_WEIGHT_BLOCK
+                    ).to(tl.float32)[None, None, :, None]
+                    valid_groups = (
+                        total_k_groups - first_k_group
+                    ).to(tl.float32)
+                    group_mask = tl.minimum(
+                        tl.maximum(valid_groups - group_ids, 0.0), 1.0)
+                    fused_uscale = (
+                        original_uscale.to(tl.float32)
+                        * act_narrow.to(tl.float32) * group_mask
+                    ).to(tl.bfloat16)
+                tl.store(
+                    tl.make_block_ptr(
+                        base=packed_slab_base,
+                        shape=(total_weight_blocks, SEGMENTS_PER_UNIT,
+                               USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE,
+                               USCALE_ROW_GRANULE),
+                        strides=(ALIGNED_SPACE_BF16, USCALE_LANE_STRIDE_BF16,
+                                 USCALE_ROW_GRANULE, 1),
+                        offsets=(block_idx, SCALE_FIRST_SEGMENT, row_start, 0),
+                        block_shape=(1, USCALE_LANES,
+                                     GROUPS_PER_WEIGHT_BLOCK,
+                                     USCALE_ROW_GRANULE),
+                        order=(3, 2, 1, 0),
+                    ),
+                    fused_uscale,
+                    memory_type="weight",
+                )
+
+        # 当前行的 scale 更新结束后走标准 blocked GEMM。weight load 使用
+        # 既有 WUS 路径读取相邻 fused UScale；tl.dot 本身不新增 scale 参数。
+        for n_block in range(total_n_blocks):
+            n_start = n_block * BLOCK_N
+            accumulator = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+
+            for k_block in range(total_k_blocks):
+                k_start = k_block * BLOCK_K
+                block_idx = n_block * total_k_blocks + k_block
+
+                activation = tl.load(
+                    tl.advance(activation_template, (m_start, k_start)),
+                    boundary_check=(0, 1),
+                    padding_option="zero",
+                )
+                packed_block_byte_offset = block_idx * ALIGNED_SPACE_BYTES
+                weight = tl.load(
+                    tl.make_block_ptr(
+                        base=packed_weight_base + packed_block_byte_offset,
+                        shape=(BLOCK_N, BLOCK_K),
+                        strides=(BLOCK_K, 1),
+                        offsets=(0, 0),
+                        block_shape=(BLOCK_N, BLOCK_K),
+                        order=(1, 0),
+                    ),
+                    memory_type="weight",
+                    ugroup=UGROUP,
+                )
+                accumulator += tl.dot(
+                    activation,
+                    tl.trans(weight),
+                    out_dtype=tl.float32,
+                )
+
+            tl.store(
+                tl.advance(output_template, (m_start, 0, n_start)),
+                tl.expand_dims(accumulator.to(tl.bfloat16), 1),
+                boundary_check=(0, 2),
+            )
+
+
+signature = {
+    "activation_fp8_ptr": "*fp8e4nv",
+    "activation_scale_ptr": "*bf16",
+    "packed_weight_ptr_list": "*i64",
+    "origin_uscale_ptr_list": "*i64",
+    "output_ptr": "*bf16",
+    "M": "i32",
+    "K": "i32",
+    "N": "i32",
+}
+
+constants = {
+    "CORE_NUM": 1,
+    "BLOCK_M": 1,
+    "BLOCK_K": 1024,
+    "BLOCK_N": 256,
+    "UGROUP": 128,
+    "K_ALIGNED": True,
+}
+
+
+def resolve_constants(dynamic, constants):
+    """按运行时 K 选择是否需要尾块 mask。
+
+    K 是 BLOCK_K 整数倍时每个 weight block 都读满 G 个 K-group, 不需要 mask;
+    否则最后一个 block 有尾部 group 要置零。两条路径在编译期二选一, 对齐场景
+    因此不付 mask 的代价。
+
+    CONTRACT: `dynamic` 里没有 K 时必须保守地判为"不对齐"。zeus_compile.py 从
+    环境变量 ZEUS_SIM_DYNAMIC 取 dynamic, GEMM suite 的 Phase 1 在不设该变量的
+    情况下先编译一份通用 IR, 再把它连同各 case 的 --dynamic 交给 sim_test.py。
+    此时若拿 BLOCK_K 当 K 的缺省值, 就会算出 K_ALIGNED=True 并静默丢掉 mask,
+    而那份 IR 随后会被 K 非 BLOCK_K 整数倍的 case 使用 —— 尾块的无效 group
+    会残留上一行的 fused scale。缺失信息必须落到带 mask 的安全侧。
+    """
+    block_k = int(constants["BLOCK_K"])
+    k_size = dynamic.get("K")
+    constants["K_ALIGNED"] = (
+        k_size is not None and int(k_size) % block_k == 0
+    )
+    return constants
+
+
+if __name__ == "__main__":
+    from kernel_to_linalg import kernel_to_linalg
+
+    kernel_to_linalg(
+        gemm_fused_uscale_fp8xfp8_kernel,
+        signature,
+        constants,
+        True,
+    )
+</code></pre>
+    </details>
+
+    <details class="source-details">
+      <summary>方案二：triton_shared/python/zeus_examples/GEMM/gemm_normal_blocked_fp8xfp8_ugroup128_fused_uscale_separate_bf16dst_f32acc_1x1024x256_1core.py</summary>
+      <pre class="source-code"><code id="fused-uscale-separate-kernel-source">
+# SIM_PARAMS: activation_fp8:ptr:in:[1,1,"M","K"]:fp8  activation_scale:ptr:in:["M","((K+1023)//1024)*8"]:bf16  packed_weight:wgt_ptr:in:[1,"N","K"]:fp8:blocked_1x1024x256  origin_uscale:wgt_ptr:in:["N//256","(K+1023)//1024",8,1024]:bf16:raw  fused_uscale:wgt_ptr:inout:["N//256","(K+1023)//1024",8,1024]:bf16:raw  output:ptr:out:[1,1,"M","N"]:bf16  M:i32  K:i32  N:i32
+# SIM_GOLDEN: fused_uscale_separate_matmul
+# SIM_RANGE: M=1:3 K=1024:3072 N=256:768
+"""设备侧融合 activation scale 与 weight UScale 的标准 blocked FP8 GEMM。
+
+本 example 采用**方案二（独立 arena）**：packed weight 只读且只含 weight
+block，fused UScale 写进一块独立的 LDG arena，PE 通过显式绑定的 USaddr 去取。
+方案一（邻接原地更新）见 ``gemm_normal_blocked_aligned_fp8xfp8_ugroup128_
+fused_uscale_bf16dst_f32acc_1x1024x128_1core.py``，两者数值语义完全一致。
+
+===============================================================================
+1. 为什么需要 fused UScale
+===============================================================================
+
+PE 硬件只有**一条** scale 通路，且挂在 weight 侧（WL1）。activation 侧没有
+任何 scale 通路，所以 act 的 per-group scale 只能在进 PE 之前就物化掉。做法
+是把它乘进 weight UScale：
+
+    out[m,n] = Σ_k act[m,k]·w[n,k]
+             = Σ_g  Σ_{k∈g} (act_q[m,k]·act_scale[m,g]) · (w_q[n,k]·w_uscale[n,g])
+             = Σ_g  act_scale[m,g]·w_uscale[n,g] · ( Σ_{k∈g} act_q[m,k]·w_q[n,k] )
+                    └──────── fused_uscale[n,g] ────────┘   └───── PE 负责 ─────┘
+
+PE 每吃满 UGROUP 个 K 就自动换一次 scale，换的是**按输出通道 n 索引**的那一个
+（weight 量化本来就是 per-channel）。所以 fused UScale 必须铺满 [BLOCK_N, G]，
+即使 act_scale 沿 n 是常数 —— 那 G 个值被广播了 BLOCK_N 遍。
+
+===============================================================================
+2. 记号
+===============================================================================
+
+    G    = BLOCK_K / UGROUP        每个 weight block 含多少个 K quant group
+    lane ∈ [0, 8)                  WL1 lane
+    row  ∈ [0, 16)                 lane 内的行；**16 是硬件固定的行粒度**
+    kg   ∈ [0, BLOCK_N / 128)      输出通道的 128 通道 super-group 下标
+
+    n = kg * 128 + lane * 16 + row          输出通道号
+
+本 example：BLOCK_N=256, BLOCK_K=1024, UGROUP=128 → G = 8, kg ∈ {0, 1}
+
+★ **不要把它写成 `n = lane * (BLOCK_N/8) + row`。** 那个式子只在 BLOCK_N=128
+  时碰巧成立（此时 kg 只有一个，且 BLOCK_N/8 恰好等于硬件粒度 16），
+  BLOCK_N 一旦变大就会静默算错 —— 输出量级正常、逐通道乱掉，很难从症状
+  反推到 layout。权威定义见
+  `sim_check/sim_framework/weight/transform.py:forward_transform_uscale`。
+  本 example 特意取 BLOCK_N=256（kg 有两个）来覆盖通用路径。
+
+===============================================================================
+3. LDG 排布（方案二：weight 与 UScale 分离）
+===============================================================================
+
+三块 LDG slab 各自独立，互不交织：
+
+    packed_weight（只读）              fused_uscale arena（inout）
+    ┌───────────────────────┐          ┌──────────────────┐
+    │ block 0  BLOCK_N×BLOCK_K │       │ page 0  16 KiB   │  ← block 0 的 scale
+    ├───────────────────────┤          ├──────────────────┤
+    │ block 1               │          │ page 1  16 KiB   │
+    ├───────────────────────┤          ├──────────────────┤
+    │          ⋮            │          │        ⋮         │
+    └───────────────────────┘          └──────────────────┘
+                                       origin_uscale（只读）同序、同页布局
+
+PE 取 scale 用的 USaddr 由 ``tl.load(..., uscale=page_ptr)`` 显式给出，编译器
+把它折算成相对 arena base 的 16 KiB 页号，因此 weight 与 scale 的相对位置不再
+被硬件固定。这正是与方案一的唯一结构差别：
+
+| | 方案一 | 方案二 |
+|---|---|---|
+| weight slab | inout，含 UScale 页 | **只读，纯 weight** |
+| USaddr 来源 | weight block 基址 + weight 字节数 | **arena 基址 + 页号** |
+| 多流复用 | 同一份 weight 不能并发更新 | weight 可共享，arena 按 slot 轮转 |
+
+代价是 PE 多读一块 weight DRAM slab，编译器需要为它单独登记同步资源。
+
+-------------------------------------------------------------------------------
+物理 WUS 页内部（8 个 WL1 lane，每 lane stride 1024 个 BF16，共 16 KiB）
+-------------------------------------------------------------------------------
+
+    page_offset(lane, kg, g, row) = lane*1024 + kg*(G*16) + g*16 + row
+
+              ├──────────────── 每 lane 1024 个 BF16 ─────────────────┤
+              ├──── kg=0 (G*16=128) ────┬──── kg=1 (G*16=128) ────┬─ pad ─┤
+              │ g0 │ g1 │ … │ g7        │ g0 │ g1 │ … │ g7        │       │
+    lane 0    │ n=0..15 (每格 16 个通道) │ n=128..143              │       │
+    lane 1    │ n=16..31                │ n=144..159              │       │
+      ⋮
+    lane 7    │ n=112..127              │ n=240..255              │       │
+              └─────────────────────────┴─────────────────────────┴───────┘
+
+    每个 (kg, g) 格子里是 **16 个连续输出通道**（上面只标了 g0 那一格的 n，
+    同一 kg 内 g1..g7 覆盖的是同一批通道、不同的 K quant group）；
+    相邻 lane 相差 16 个通道，相邻 kg 相差 128 个通道。
+
+页容量 8 × 1024 = 8192 个 BF16 是硬件固定的；逻辑有效数据只有
+BLOCK_N × G 个（本 example 2048 个，占页面 1/4），其余是页内 padding，
+kernel 不写，arena 作为 inout 参数保留 host 传入的原值。
+约束 (BLOCK_N/128) × G × 16 ≤ 1024，等价于 **BLOCK_N × G ≤ 8192**；
+超出这个界 forward_transform_uscale 会把页分段（S &gt; 1），本 kernel 的
+单段视图就不再成立。
+
+===============================================================================
+4. GDG 排布：act scale 用最朴素的形状
+===============================================================================
+
+    activation_scale: [M, K/UGROUP_padded]
+                       │   └── K-group，padding 到 ⌈K/BLOCK_K⌉ × G
+                       └── token
+
+**算法侧产出什么就传什么** —— per-128 量化本来就是这个形状，不需要按 WL1 lane
+重排，也不需要知道页的几何。
+
+kernel 侧读成 [1, 1, G, 1]，由硬件沿页最内轴（16 个连续通道）做 C 方向广播，
+**整页仍然只用一条 VP**。
+
+这个 ABI 不但不比 lane-major 慢，实测还略快：同形状（BLOCK_M=1, BLOCK_K=1024,
+BLOCK_N=128, M=2/K=1024/N=128，VCS 带 trace）**4,828 cy vs lane-major 的
+4,968 cy（−2.8%）**，因为只读 G 个标量比读 8×G×16 个 lane-major 值省 LD
+（LD 指令 27 vs 31，CT 955 vs 1,017）。
+
+曾经用过 lane-major `[M, N/R, K/UGROUP_pad, R]`（R = BLOCK_N/8）：它在
+BLOCK_N=128 下能工作，但按 §2 的真实编址要展开成 [M, lane, kg, g, row16]
+五个轴，而 tl.make_block_ptr 只有四维 —— BLOCK_N &gt; 128 时根本摆不下。
+
+K-group 轴 padding 到 BLOCK_K 的整数倍，是为了让最后一个 block 也能读满 G 个
+group 而不越界 —— boundary_check 在硬件上是**裁 tile 尺寸**而非补零，被裁掉
+的部分在 L2 里留的是未初始化数据。
+
+===============================================================================
+5. 执行语义
+===============================================================================
+
+BLOCK_M 固定为 1：一个 weight block 在 arena 里只有一页 WUS，而不同 token 的
+act scale 不同，所以只能逐 token 重算。对每个 M row：
+
+    for each weight block:
+      for kg in range(BLOCK_N / 128):          # 见下面「为什么按 kg 拆」
+        LD  origin weight UScale [8, G, 16]  ─┐
+        LD  act scale [1, G, 1]              ─┼→ VP 相乘 → ST 写 arena 对应区间
+    然后执行该 row 的标准 blocked GEMM
+        weight 走 tl.load(..., memory_type="weight", ugroup=UGROUP,
+                          uscale=arena_base + block_idx * PAGE)，
+        tl.dot 不增加任何 scale 参数
+
+``uscale=`` 只做地址绑定，不产生数据搬运：编译器把该指针折算成 PE_SETM_U 的
+USaddr（相对 arena base 的 16 KiB 页号）。ST 写 arena 与 PE 读 arena 之间的
+RAW 依赖由编译器为该 slab 单独建立的同步资源保证。
+
+-------------------------------------------------------------------------------
+★ 为什么按 kg 拆循环，而不是把 (g, row16) 合成一个 G*16 的最内轴
+-------------------------------------------------------------------------------
+
+两种写法描述的是同一段内存（kg*(G*16) + g*16 + row ≡ (kg*G + g)*16 + row），
+但交给 DMA 的 tile 形状不同：
+
+    本 kernel   tile = (lane=8, g=G, row=16)      C = 16    ✓
+    合并写法    tile = (lane=8, kg=N_SUPER, GG)   C = G*16  ✗
+
+**C 必须等于硬件的 16 行粒度。** 把 g 折进 C 会让描述符退化成一堆小传输 ——
+实测同形状下 LD 指令 31 → 157、CT 1,017 → 3,889、wall **4,968 → 23,301
+（4.7 倍回退）**，而 PE/VP 的工作量一模一样。
+
+反过来，若保持 C=16 而想让 act scale 沿 W 轴（kg,g 合并轴）平铺，reshape
+出来的视图不 compact，会被 "VP matrix C-broadcast requires a proven compact
+SrcB view" 拒掉。按 kg 拆开后每次的 scale 就是同一份 [1, G, 1]，两个问题
+一起解决；BLOCK_N = 128 时循环退化成 1 次，零代价（实测与不拆完全同 cycle）。
+
+K 非 BLOCK_K 整数倍时，尾部 group 必须显式写 0（同一块 arena 会被后续 M row
+复用，不写会残留上一行的 fused scale）。该 guard 由 K_ALIGNED constexpr 在
+编译期择路：**默认值是保守的 False（带 mask，恒正确）**，只有调用方执行了
+``resolve_constants`` 并确认 K 对齐才升级成 True 拿掉 mask。默认值必须在这一
+侧，因为并非所有调用方都会调 ``resolve_constants`` —— GEMM suite 就是先用默认
+constants 编译一份 IR 再喂各个 dynamic，默认 True 会让它在 K 非对齐时静默丢掉
+mask。详见下面 resolve_constants 的 CONTRACT 注释。
+
+===============================================================================
+6. ABI 与约束
+===============================================================================
+
+* ``activation_fp8_ptr``   GDG 只读，逻辑 [M, K]。
+* ``activation_scale_ptr`` GDG 只读，[M, K/UGROUP_padded]，见 §4。
+* ``packed_weight_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的**只读**
+                              LDG，按 (n_block, k_block) 顺序排纯 weight block，
+                              块后不跟 UScale 页。
+* ``origin_uscale_ptr_list``  GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的只读
+                              LDG，每 block 一个物理 WUS 页。
+* ``fused_uscale_ptr_list``   GDG 中 [CORE_NUM] 个 i64 地址 → 本 core 的 inout
+                              arena，与 origin_uscale 同序、同页布局。
+* ``output_ptr``           GDG 写出，逻辑 [M, N] 的 BF16。
+
+约束：
+
+* M 是运行时维度；BLOCK_M 固定为 1。
+* K 必须按 UGROUP 对齐；BLOCK_K 可含多个 UGROUP（不要求 BLOCK_K == UGROUP）。
+* 每个 core 的 N 必须按 BLOCK_N 对齐，且 BLOCK_N 必须是 128 的整数倍
+  （128 = 8 lane × 16 row 是一个 super-group）。
+* BLOCK_N × (BLOCK_K / UGROUP) ≤ 8192，保证一个 block 的全部 scale 放得进
+  单个 WUS 页（见 §3）。
+* activation 与 weight 必须用相同的 UGROUP。
+* arena base 与其中每一页都必须 16 KiB 对齐（PE_SETM_U 的 USaddr 以 16 KiB
+  为单位）。
+* 同一块 arena 不能被多个未完成的 invocation 共享，并发或 graph replay 由调用
+  方按 slot 轮转；kernel 返回时 arena 保留最后一个 M row 对应的 fused UScale。
+  packed_weight 只读，因此可以跨 invocation 共享。
+"""
+
+import triton
+import triton.language as tl
+
+
+@triton.jit
+def gemm_fused_uscale_separate_kernel(
+    activation_fp8_ptr,           # GDG in  [M, K] fp8
+    activation_scale_ptr,         # GDG in  [M, K//UGROUP_padded] bf16（算法侧原生 per-128 形状，见 §4）
+    packed_weight_ptr_list,       # GDG [CORE_NUM] i64 -&gt; LDG in    纯 weight block 序列，每块 [BLOCK_N, BLOCK_K]，块后不再跟 UScale page
+    origin_uscale_ptr_list,       # GDG [CORE_NUM] i64 -&gt; LDG in    original UScale，物理 page [8, 1024] bf16 / block（同方案一）
+    fused_uscale_ptr_list,        # GDG [CORE_NUM] i64 -&gt; LDG inout fused UScale arena，物理 page [8, 1024] bf16 / block   ← 方案二新增
+    output_ptr,                   # GDG out [M, N] bf16
+    M,                            # 运行时 i32 标量；GEMM M
+    K,                            # 运行时 i32 标量；GEMM K
+    N,                            # 运行时 i32 标量；GEMM N
+    CORE_NUM: tl.constexpr,       # 编译期标量；PE core 数
+    BLOCK_M: tl.constexpr,        # 编译期 M tile；当前只支持 1
+    BLOCK_K: tl.constexpr,        # 编译期 K tile；必须是 UGROUP 的整数倍
+    BLOCK_N: tl.constexpr,        # 编译期 N tile；weight block 的 N 维
+    UGROUP: tl.constexpr,         # 编译期标量；activation/weight 沿 K 的量化粒度
+    K_ALIGNED: tl.constexpr,      # 编译期标量；K 是否为 BLOCK_K 的整数倍
+):
+    """逐 activation row 写 arena 中的 fused UScale page，再执行 block GEMM。"""
+    # 物理 WUS 页由 8 个 WL1 lane 组成，每个 lane 固定占 1024 个 BF16。
+    # 页的真实几何 (权威来源 forward_transform_uscale):
+    #   页内偏移 = lane*1024 + kg*(G*16) + g*16 + row16
+    #   输出通道 n = kg*128 + lane*16 + row16,  kg ∈ [0, BLOCK_N/128)
+    # 每 lane 的行粒度恒为 16, 外层套 128 通道的 super-group。
+    # 注意 BLOCK_N/8 那套只在 BLOCK_N=128 时碰巧成立, 见文件头 §2。
+    USCALE_LANES: tl.constexpr = 8
+    USCALE_LANE_STRIDE_BF16: tl.constexpr = 1024
+    USCALE_ROW_GRANULE: tl.constexpr = 16
+    USCALE_CHANNELS_PER_SUPER: tl.constexpr = (
+        USCALE_LANES * USCALE_ROW_GRANULE
+    )
+    N_SUPER_GROUPS: tl.constexpr = BLOCK_N // USCALE_CHANNELS_PER_SUPER
+    USCALE_PAGE_BF16_ELEMS: tl.constexpr = (
+        USCALE_LANES * USCALE_LANE_STRIDE_BF16
+    )
+    USCALE_ROWS_PER_PAGE_LANE: tl.constexpr = (
+        USCALE_LANE_STRIDE_BF16 // USCALE_ROW_GRANULE
+    )
+    GROUPS_PER_WEIGHT_BLOCK: tl.constexpr = BLOCK_K // UGROUP
+    # 方案二: packed weight 只含 weight block，block stride 就是 weight 字节数。
+    WEIGHT_BYTES_PER_BLOCK: tl.constexpr = BLOCK_N * BLOCK_K
+
+    # BLOCK_M 必须为 1：不同 activation row 有不同的 scale，而一次 PE dot
+    # 只能为整个 M tile 绑定同一份 weight UScale。
+    tl.static_assert(BLOCK_M == 1, "每次 dot 只能消费一行 activation scale")
+    # BLOCK_K 是 PE tile 宽度，不等于 quant group。一个 weight block 可以
+    # 包含多个 UGROUP；只要求 group 完整落在 block 内，并且全部 scale
+    # 能放进每个 WL1 lane 的物理区域。
+    tl.static_assert(BLOCK_K % UGROUP == 0, "K block 必须包含整数个 quant group")
+    tl.static_assert(
+        BLOCK_N % USCALE_CHANNELS_PER_SUPER == 0,
+        "输出通道必须能够均分成 128 通道的 super-group",
+    )
+    tl.static_assert(
+        N_SUPER_GROUPS * GROUPS_PER_WEIGHT_BLOCK * USCALE_ROW_GRANULE
+        &lt;= USCALE_LANE_STRIDE_BF16,
+        "每个 WL1 lane 的 quant-group scale 必须能放入自己的 WUS 区域",
+    )
+
+    core_id = tl.program_id(axis=0)
+    n_per_core = N // CORE_NUM
+    total_m_blocks = tl.cdiv(M, BLOCK_M)
+    total_n_blocks = tl.cdiv(n_per_core, BLOCK_N)
+    total_k_blocks = tl.cdiv(K, BLOCK_K)
+    total_k_groups = tl.cdiv(K, UGROUP)
+    # act scale 的 K-group 维按 BLOCK_K 对齐做 padding: 这样最后一个 weight
+    # block 读满 G 个 group 时也落在分配范围内(读到 padding 值), 越界部分靠
+    # 下面的 mask 置零。若改用 boundary_check, 它在硬件上是裁 tile 尺寸而非
+    # 补零, 读回来的 tensor 形状会和 mask 对不上。
+    padded_k_groups = total_k_blocks * GROUPS_PER_WEIGHT_BLOCK
+
+    # 三个 ptr_list 自身位于 GDG；表项分别给出本 core 的只读 weight LDG、
+    # 只读 original-UScale LDG 和可写 fused-UScale arena 的基地址。
+    packed_weight_addr = tl.load(packed_weight_ptr_list + core_id)
+    packed_weight_base = packed_weight_addr.to(
+        tl.pointer_type(tl.float8e4nv)
+    )
+    origin_uscale_addr = tl.load(origin_uscale_ptr_list + core_id)
+    origin_uscale_base = origin_uscale_addr.to(
+        tl.pointer_type(tl.bfloat16)
+    )
+    fused_uscale_addr = tl.load(fused_uscale_ptr_list + core_id)
+    fused_uscale_base = fused_uscale_addr.to(
+        tl.pointer_type(tl.bfloat16)
+    )
+
+    activation_template = tl.make_block_ptr(
+        base=activation_fp8_ptr,
+        shape=(M, K),
+        strides=(K, 1),
+        offsets=(0, 0),
+        block_shape=(BLOCK_M, BLOCK_K),
+        order=(1, 0),
+    )
+    output_template = tl.make_block_ptr(
+        base=output_ptr,
+        shape=(M, CORE_NUM, n_per_core),
+        strides=(N, n_per_core, 1),
+        offsets=(0, core_id, 0),
+        block_shape=(BLOCK_M, 1, BLOCK_N),
+        order=(2, 1, 0),
+    )
+
+    total_weight_blocks = total_n_blocks * total_k_blocks
+
+    # BLOCK_M 固定为 1，但 M 是任意运行时维度。每一行必须先完成自己的
+    # fused-UScale 写回和 GEMM，才能让下一行安全复用同一块 arena。
+    for m_block in range(total_m_blocks):
+        m_start = m_block * BLOCK_M
+
+        # 每个 weight block 的 fused UScale 按 kg 分次读-乘-写。
+        # What: 一次覆盖 (lane, g, row16) = (8, G, 16), 每个 kg 只发
+        #   2 条 LD + 1 条 VP + 1 条 ST, 而不是按 (lane, group) 循环 8*G 轮。
+        # Why: 一条 VP 算 128 个元素只要 4 拍却占 73 cy, 代价几乎只由指令条数
+        #   决定。逐 segment 版本在 M=2/K=1024/N=128 下 128 个 segment 吃掉
+        #   wall 87,985 cy(LD 30,961 + ST 19,706), 而真正的 MAC 只有 265 cy。
+        # Assumption: origin/arena 页与 act scale 都能用同一套
+        #   (lane, g, row16) 索引表达且 stride 递减 —— 页是
+        #   (1024, 16, 1), act scale 沿 g 变、由硬件在 row16 方向广播。
+        # Not covered: 仍要求 (BLOCK_N/128)*G*16 &lt;= USCALE_LANE_STRIDE_BF16
+        #   (见上面的 static_assert); 页内 padding 不写, 由 arena 的 inout
+        #   语义保留原值。
+        for block_idx in range(total_weight_blocks):
+            n_block = block_idx // total_k_blocks
+            k_block = block_idx % total_k_blocks
+            global_n_start = core_id * n_per_core + n_block * BLOCK_N
+            first_k_group = k_block * GROUPS_PER_WEIGHT_BLOCK
+
+            # 页里每个 lane 的 W 轴是 (kg, g) 两级: kg 是 128 通道的
+            # super-group, g 是 K quant group, 每格 16 个连续输出通道。
+            # 按 kg 拆开处理, 好处有两个:
+            #   1. tile 保持 (lane, g, row16) = (8, G, 16), C=16 —— 与页内
+            #      真实的连续性一致; 若把 g 和 row16 合成 C=G*16 交给 DMA,
+            #      描述符会退化成一堆小传输(实测同形状 LD 指令 31 -&gt; 157,
+            #      CT 1,017 -&gt; 3,889, wall 4,968 -&gt; 23,301)。
+            #   2. act scale 只随 g 变, 每个 kg 用的是同一份 [1,1,G,1],
+            #      直接做 C 方向广播即可; 若改成沿 W 平铺, reshape 出来的
+            #      视图不 compact, 会被 "VP matrix C-broadcast requires a
+            #      proven compact SrcB view" 拒掉。
+            # BLOCK_N = 128 时该循环退化成 1 次, 零代价。
+            for super_group in tl.static_range(N_SUPER_GROUPS):
+                row_start = super_group * GROUPS_PER_WEIGHT_BLOCK
+                original_uscale = tl.load(
+                    tl.make_block_ptr(
+                        base=origin_uscale_base,
+                        shape=(total_weight_blocks, USCALE_LANES,
+                               USCALE_ROWS_PER_PAGE_LANE,
+                               USCALE_ROW_GRANULE),
+                        strides=(USCALE_PAGE_BF16_ELEMS,
+                                 USCALE_LANE_STRIDE_BF16,
+                                 USCALE_ROW_GRANULE, 1),
+                        offsets=(block_idx, 0, row_start, 0),
+                        block_shape=(1, USCALE_LANES,
+                                     GROUPS_PER_WEIGHT_BLOCK,
+                                     USCALE_ROW_GRANULE),
+                        order=(3, 2, 1, 0),
+                    ),
+                    memory_type="weight",
+                )
+                # act scale ABI 就是算法侧原本的 per-128 形状 [M, K/UGROUP],
+                # 不需要按 WL1 lane 重排。读成 [1,1,G,1] 后由硬件沿 16 个
+                # 连续通道做 C 广播。
+                act_narrow = tl.load(
+                    tl.make_block_ptr(
+                        base=activation_scale_ptr,
+                        shape=(M, 1, padded_k_groups, 1),
+                        strides=(padded_k_groups, padded_k_groups, 1, 1),
+                        offsets=(m_start, 0, first_k_group, 0),
+                        block_shape=(1, 1, GROUPS_PER_WEIGHT_BLOCK, 1),
+                        order=(3, 2, 1, 0),
+                    ),
+                )
+                # K 是 BLOCK_K 整数倍时每个 block 的 G 个 K-group 全部有效;
+                # 否则尾部 group 不存在, 必须显式置零 —— 同一块 arena 会被
+                # 后续 M 行复用, 不置零会残留上一行的 fused scale。
+                # K_ALIGNED 默认 False(带 mask), 只有调用方执行了
+                # resolve_constants 并确认 K 对齐才升级为 True —— 默认值必须
+                # 在保守的那一侧, 否则跳过 resolve_constants 的调用方会静默
+                # 丢掉 mask。
+                #
+                # 为什么 mask 写成这个样子:
+                #   - boundary_check 只防越界访问, 它在硬件上是裁 tile 尺寸
+                #     而非补零, 被裁掉的部分在 L2 里留的是未初始化数据, 所以
+                #     act scale 的 K-group 维要按 BLOCK_K 对齐 padding;
+                #   - tensor 条件的 tl.where 编译不了(linalg.generic 无法
+                #     legalize, issue #196), 只能用纯 f32 算术凑
+                #     clamp(valid-g, 0, 1);
+                #   - 不能用 scf.if 分快慢路径 —— 两分支 ST 条数不同会让
+                #     InjectSync 的 ST-&gt;VP credit 算不平(issue #197)。
+                if K_ALIGNED:
+                    fused_uscale = original_uscale * act_narrow
+                else:
+                    group_ids = tl.arange(
+                        0, GROUPS_PER_WEIGHT_BLOCK
+                    ).to(tl.float32)[None, None, :, None]
+                    valid_groups = (
+                        total_k_groups - first_k_group
+                    ).to(tl.float32)
+                    group_mask = tl.minimum(
+                        tl.maximum(valid_groups - group_ids, 0.0), 1.0)
+                    fused_uscale = (
+                        original_uscale.to(tl.float32)
+                        * act_narrow.to(tl.float32) * group_mask
+                    ).to(tl.bfloat16)
+                # 方案二: 写入独立 arena 的对应 page, 不再碰 packed weight。
+                # arena 与 origin_uscale 同序同布局, 所以与上面的 origin load
+                # 共用同一个 block_ptr 形状, 只换 base。ST 与后面 PE 读同一页
+                # 的 RAW 依赖由编译器为该 slab 单独登记的同步资源建立。
+                tl.store(
+                    tl.make_block_ptr(
+                        base=fused_uscale_base,
+                        shape=(total_weight_blocks, USCALE_LANES,
+                               USCALE_ROWS_PER_PAGE_LANE,
+                               USCALE_ROW_GRANULE),
+                        strides=(USCALE_PAGE_BF16_ELEMS,
+                                 USCALE_LANE_STRIDE_BF16,
+                                 USCALE_ROW_GRANULE, 1),
+                        offsets=(block_idx, 0, row_start, 0),
+                        block_shape=(1, USCALE_LANES,
+                                     GROUPS_PER_WEIGHT_BLOCK,
+                                     USCALE_ROW_GRANULE),
+                        order=(3, 2, 1, 0),
+                    ),
+                    fused_uscale,
+                    memory_type="weight",
+                )
+
+        # 当前行的 scale 写完后走标准 blocked GEMM。weight load 用 uscale=
+        # 把本 tile 绑定到 arena 中的对应 page；tl.dot 本身不新增 scale 参数。
+        for n_block in range(total_n_blocks):
+            n_start = n_block * BLOCK_N
+            accumulator = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+
+            for k_block in range(total_k_blocks):
+                k_start = k_block * BLOCK_K
+                block_idx = n_block * total_k_blocks + k_block
+
+                activation = tl.load(
+                    tl.advance(activation_template, (m_start, k_start)),
+                    boundary_check=(0, 1),
+                    padding_option="zero",
+                )
+                weight_block_byte_offset = block_idx * WEIGHT_BYTES_PER_BLOCK
+                weight = tl.load(
+                    tl.make_block_ptr(
+                        base=packed_weight_base + weight_block_byte_offset,
+                        shape=(BLOCK_N, BLOCK_K),
+                        strides=(BLOCK_K, 1),
+                        offsets=(0, 0),
+                        block_shape=(BLOCK_N, BLOCK_K),
+                        order=(1, 0),
+                    ),
+                    memory_type="weight",
+                    ugroup=UGROUP,
+                    # 方案二: 本 weight tile 的 UScale 来自 arena 的第 block_idx
+                    # 个 16 KiB page（page 起始指针，编译器推导 USaddr）。
+                    uscale=fused_uscale_base
+                    + block_idx * USCALE_PAGE_BF16_ELEMS,
+                )
+                accumulator += tl.dot(
+                    activation,
+                    tl.trans(weight),
+                    out_dtype=tl.float32,
+                )
+
+            tl.store(
+                tl.advance(output_template, (m_start, 0, n_start)),
+                tl.expand_dims(accumulator.to(tl.bfloat16), 1),
+                boundary_check=(0, 2),
+            )
+
+
+signature = {
+    "activation_fp8_ptr": "*fp8e4nv",
+    "activation_scale_ptr": "*bf16",
+    "packed_weight_ptr_list": "*i64",
+    "origin_uscale_ptr_list": "*i64",
+    "fused_uscale_ptr_list": "*i64",
+    "output_ptr": "*bf16",
+    "M": "i32",
+    "K": "i32",
+    "N": "i32",
+}
+
+constants = {
+    "CORE_NUM": 1,
+    "BLOCK_M": 1,
+    "BLOCK_K": 1024,
+    "BLOCK_N": 256,
+    "UGROUP": 128,
+    # 默认取保守的 False(带尾块 mask)。resolve_constants 只在确认 K 对齐后才
+    # 把它升级成 True。
+    # CONTRACT: 不是所有调用方都会执行 resolve_constants —— GEMM suite 的
+    # run_all_tests.sh 先用本 constants 编译一份 .zeushigh.mlir, 再把这份 IR
+    # 连同各 case 的 --dynamic 交给 sim_test.py, 此时 resolve_constants 不会被
+    # 调用。默认 True 会让这类调用方在 K 非 BLOCK_K 整数倍时静默丢掉尾块 mask,
+    # arena 的无效 group 残留上一行的 fused scale。默认 False 在同样情况下只是
+    # 多付 mask 的代价, 结果依然正确。
+    "K_ALIGNED": False,
+}
+
+
+def resolve_constants(dynamic, constants):
+    """按运行时 K 选择是否需要尾块 mask。
+
+    K 是 BLOCK_K 整数倍时每个 weight block 都读满 G 个 K-group, 不需要 mask;
+    否则最后一个 block 有尾部 group 要置零。两条路径在编译期二选一, 对齐场景
+    因此不付 mask 的代价。
+
+    CONTRACT: `dynamic` 里没有 K 时必须保守地判为"不对齐"。zeus_compile.py 从
+    环境变量 ZEUS_SIM_DYNAMIC 取 dynamic, GEMM suite 的 Phase 1 在不设该变量的
+    情况下先编译一份通用 IR, 再把它连同各 case 的 --dynamic 交给 sim_test.py。
+    此时若拿 BLOCK_K 当 K 的缺省值, 就会算出 K_ALIGNED=True 并静默丢掉 mask,
+    而那份 IR 随后会被 K 非 BLOCK_K 整数倍的 case 使用 —— arena 的无效 group
+    会残留上一行的 fused scale。缺失信息必须落到带 mask 的安全侧。
+    """
+    block_k = int(constants["BLOCK_K"])
+    k_size = dynamic.get("K")
+    constants["K_ALIGNED"] = (
+        k_size is not None and int(k_size) % block_k == 0
+    )
+    return constants
+
+
+if __name__ == "__main__":
+    from kernel_to_linalg import kernel_to_linalg
+
+    kernel_to_linalg(
+        gemm_fused_uscale_separate_kernel,
+        signature,
+        constants,
+        True,
+    )
+</code></pre>
+    </details>
+  </section>
+
+  <p class="foot">
+    权威 layout 定义：<code>triton_shared/sim_check/sim_framework/weight/transform.py:forward_transform_uscale</code>　·
+    相关讨论：<a href="http://172.16.116.216:30000/compilergroup/triton_shared/issues/191">issue #191</a>　·
+    合入记录：MR !927（方案一功能通路）、MR !933（方案二 <code>tl.load(uscale=)</code> 全链路）、MR !936（整页向量化）、MR !949（按真实通道编址重写 + act scale ABI 简化）
+  </p>
+</main>
+
+
+<style>
+.hljs { background: transparent; color: inherit; }
+.hljs-comment, .hljs-quote { color: #6A9199; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag { color: #C792EA; }
+.hljs-string, .hljs-doctag { color: #C3E88D; }
+.hljs-number, .hljs-literal { color: #F78C6C; }
+.hljs-title, .hljs-title_, .hljs-section { color: #82AAFF; }
+.hljs-built_in, .hljs-type { color: #FFCB6B; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: #F07178; }
+.hljs-meta, .hljs-symbol, .hljs-bullet, .hljs-link { color: #89DDFF; }
+.hljs-params { color: inherit; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  // CDN 不可达时静默跳过：代码块保持原样，仍然可读
+  if (typeof hljs === "undefined") return;
+  document.querySelectorAll("pre code").forEach(function (el) {
+    try { hljs.highlightElement(el); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>
